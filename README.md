@@ -1,6 +1,6 @@
 # GoCache
 
-**当前版本: v0.1.1**
+**当前版本: v0.2.0**
 
 一个简单的 Go 语言内存数据库(内存缓存)实现。
 
@@ -10,6 +10,7 @@
 - ✅ 线程安全(基于 sync.RWMutex)
 - ✅ 支持 TTL 过期时间
 - ✅ 惰性删除 + 定期清理机制
+- ✅ LRU 淘汰策略(最近最少使用)
 - ✅ 轻量级,无外部依赖
 - ✅ 自动版本管理(根据提交信息自动更新版本号和 tag)
 
@@ -20,7 +21,9 @@ GoCache/
 ├── cache/
 │   ├── cache.go          # 核心缓存实现
 │   ├── eviction.go       # 过期清理逻辑
-│   └── cache_test.go     # 单元测试
+│   ├── cache_test.go     # 单元测试
+│   ├── lru.go            # LRU 缓存实现
+│   └── lru_test.go       # LRU 单元测试
 ├── main.go               # 示例代码
 └── README.md
 ```
@@ -42,36 +45,39 @@ package main
 import (
     "fmt"
     "time"
-    
+
     "GoCache/cache"
 )
 
 func main() {
-    // 创建缓存
+    // 创建普通缓存(永不过期)
     c := cache.New()
-    
+
+    // 创建 LRU 缓存(容量为 100)
+    lru := cache.NewLRU(100)
+
     // 设置缓存(永不过期)
     c.Set("name", "GoCache", 0)
-    
+
     // 设置缓存(带过期时间)
     c.Set("temp", "value", 5*time.Second)
-    
+
     // 获取缓存
     if value, found := c.Get("name"); found {
         fmt.Println(value) // 输出: GoCache
     }
-    
+
     // 删除缓存
     c.Delete("temp")
-    
+
     // 检查键是否存在
     if c.Exists("name") {
         fmt.Println("name exists")
     }
-    
+
     // 获取所有键
     keys := c.Keys()
-    
+
     // 清空缓存
     c.Clear()
 }
@@ -186,11 +192,12 @@ git push origin v0.2.0
 - **存储结构**: `map[string]*Item`
 - **并发控制**: `sync.RWMutex`(读写锁)
 - **过期策略**: 惰性删除 + 定期全量清理
-- **数据类型**: 支持任意 `interface{}` 类型
+- **淘汰策略**: LRU(最近最少使用)
+- **数据类型**: 支持任意 `any` 类型
 
 ## 后续计划
 
-- [ ] 支持 LRU/LFU 淘汰策略
+- [ ] 支持 LFU 淘汰策略
 - [ ] 增加持久化功能
 - [ ] 提供 HTTP/gRPC 接口
 - [ ] 支持数据结构(String, List, Hash, Set)
