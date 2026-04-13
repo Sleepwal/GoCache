@@ -1,5 +1,7 @@
 # GoCache
 
+**当前版本: v0.1.0**
+
 一个简单的 Go 语言内存数据库(内存缓存)实现。
 
 ## 功能特性
@@ -9,6 +11,7 @@
 - ✅ 支持 TTL 过期时间
 - ✅ 惰性删除 + 定期清理机制
 - ✅ 轻量级,无外部依赖
+- ✅ 自动版本管理(根据提交信息自动更新版本号和 tag)
 
 ## 项目结构
 
@@ -129,6 +132,53 @@ go test ./cache -v
 
 ```bash
 go run main.go
+```
+
+## 版本管理
+
+### 自动版本更新
+
+项目提供了自动版本管理脚本,会根据 git 提交信息自动:
+1. 更新版本号(语义化版本: 主版本.次版本.补丁)
+2. 更新 README 中的版本标记
+3. 创建 git tag
+
+### 版本号规则
+
+- **主版本(Major)**: 破坏性更新/BREAKING CHANGE
+- **次版本(Minor)**: 新功能/feat
+- **补丁版本(Patch)**: Bug 修复、性能优化、重构
+
+### 使用方法
+
+**Windows:**
+```bash
+# 方式 1: 使用批处理文件
+version.bat
+
+# 方式 2: 直接运行 PowerShell 脚本
+powershell -ExecutionPolicy Bypass -File scripts/version.ps1
+```
+
+**Linux/Mac:**
+```bash
+chmod +x scripts/version.sh
+./scripts/version.sh
+```
+
+### 版本提交流程
+
+```bash
+# 1. 提交代码变更
+git add .
+git commit -m "feat: 添加 LRU 淘汰策略"
+
+# 2. 运行版本更新脚本
+version.bat  # 或 ./scripts/version.sh
+
+# 3. 推送代码和 tag
+git push
+git push origin v0.2.0
 ```
 
 ## 技术实现
