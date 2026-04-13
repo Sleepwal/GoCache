@@ -7,7 +7,7 @@ import (
 
 // Item 缓存项
 type Item struct {
-	Value      interface{}
+	Value      any
 	Expiration int64 // 过期时间戳(纳秒),0表示永不过期
 }
 
@@ -21,8 +21,8 @@ func (item *Item) IsExpired() bool {
 
 // Cache 缓存接口
 type Cache interface {
-	Set(key string, value interface{}, ttl time.Duration)
-	Get(key string) (interface{}, bool)
+	Set(key string, value any, ttl time.Duration)
+	Get(key string) (any, bool)
 	Delete(key string) bool
 	Exists(key string) bool
 	Keys() []string
@@ -44,7 +44,7 @@ func New() *MemoryCache {
 }
 
 // Set 添加或更新缓存项
-func (c *MemoryCache) Set(key string, value interface{}, ttl time.Duration) {
+func (c *MemoryCache) Set(key string, value any, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -60,7 +60,7 @@ func (c *MemoryCache) Set(key string, value interface{}, ttl time.Duration) {
 }
 
 // Get 获取缓存项
-func (c *MemoryCache) Get(key string) (interface{}, bool) {
+func (c *MemoryCache) Get(key string) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
