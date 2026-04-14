@@ -1,6 +1,6 @@
 # GoCache
 
-**当前版本: v0.5.0**
+**当前版本: v0.6.0**
 
 一个简单的 Go 语言内存数据库(内存缓存)实现。
 
@@ -21,6 +21,7 @@
 - ✅ Set 数据结构(SADD, SREM, SUNION, SINTER 等)
 - ✅ 快照/序列化持久化(JSON/Gob 格式)
 - ✅ AOF 持久化(Append-Only File)
+- ✅ HTTP REST API 服务器
 - ✅ 轻量级,无外部依赖
 - ✅ 自动版本管理(根据提交信息自动更新版本号和 tag)
 
@@ -260,6 +261,50 @@ inter := sc.SInter("set1", "set2")   // 返回 [c]
 diff := sc.SDiff("set1", "set2")     // 返回 [a, b]
 ```
 
+### HTTP REST API 服务器
+
+```go
+package main
+
+import (
+    "GoCache/server"
+)
+
+func main() {
+    // 创建 HTTP 服务器 (默认端口 8080)
+    hs := server.NewHTTPServer(server.HTTPServerConfig{
+        Port: 8080,
+    })
+
+    // 启动服务器
+    hs.Start()
+}
+```
+
+**API 端点:**
+
+```bash
+# 设置缓存
+curl -X POST http://localhost:8080/cache/mykey \
+  -H "Content-Type: application/json" \
+  -d '{"value": "myvalue", "ttl": "1h"}'
+
+# 获取缓存
+curl http://localhost:8080/cache/mykey
+
+# 删除缓存
+curl -X DELETE http://localhost:8080/cache/mykey
+
+# 获取所有键
+curl http://localhost:8080/cache/keys
+
+# 获取统计信息
+curl http://localhost:8080/cache/stats
+
+# 清空缓存
+curl -X POST http://localhost:8080/cache/clear
+```
+
 ### 定期清理
 
 ```go
@@ -399,6 +444,59 @@ stop()
 
 #### `Close() error`
 关闭 AOF 文件。
+
+### HTTP REST API
+
+#### `NewHTTPServer(cfg HTTPServerConfig) *HTTPServer`
+创建 HTTP 缓存服务器。
+
+#### `Start() error`
+启动 HTTP 服务器（阻塞）。
+
+#### `StartAsync() <-chan error`
+异步启动 HTTP 服务器。
+
+#### `Stop() error`
+停止 HTTP 服务器。
+
+**API 端点:**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/cache/{key}` | 获取缓存 |
+| POST | `/cache/{key}` | 设置缓存 |
+| DELETE | `/cache/{key}` | 删除缓存 |
+| GET | `/cache/keys` | 获取所有键 |
+| GET | `/cache/stats` | 获取统计信息 |
+| POST | `/cache/clear` | 清空缓存 |
+
+**请求格式:**
+
+```json
+{
+  "value": "any",
+  "ttl": "1h"  // 可选，支持 time.Duration 格式
+}
+```
+
+**响应格式:**
+
+成功:
+```json
+{
+  "key": "mykey",
+  "value": "myvalue"
+}
+```
+
+错误:
+```json
+{
+  "error": "Not Found",
+  "message": "key not found",
+  "status": 404
+}
+```
 
 ### String 操作 API
 
