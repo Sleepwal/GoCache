@@ -1,6 +1,6 @@
 # GoCache
 
-**当前版本: v0.3.0**
+**当前版本: v0.4.0**
 
 一个简单的 Go 语言内存数据库(内存缓存)实现。
 
@@ -15,6 +15,10 @@
 - ✅ 缓存统计指标(命中率、操作计数等)
 - ✅ OnEviction 回调函数(缓存项移除时通知)
 - ✅ 泛型支持(类型安全的缓存操作)
+- ✅ String 操作(Append, Incr/Decr, GetRange 等)
+- ✅ List 数据结构(LPUSH/RPUSH, LPOP/RPOP, LRANGE 等)
+- ✅ Hash/Map 数据结构(HSET, HGET, HGETALL 等)
+- ✅ Set 数据结构(SADD, SREM, SUNION, SINTER 等)
 - ✅ 轻量级,无外部依赖
 - ✅ 自动版本管理(根据提交信息自动更新版本号和 tag)
 
@@ -23,19 +27,27 @@
 ```
 GoCache/
 ├── cache/
-│   ├── cache.go          # 核心缓存实现
-│   ├── eviction.go       # 过期清理逻辑
-│   ├── stats.go          # 统计指标实现
-│   ├── generic_cache.go  # 泛型缓存包装器
-│   ├── cache_test.go     # 单元测试
-│   ├── callback_test.go  # 回调测试
-│   ├── stats_test.go     # 统计测试
-│   ├── generic_cache_test.go # 泛型测试
-│   ├── lru.go            # LRU 缓存实现
-│   ├── lru_test.go       # LRU 单元测试
-│   ├── lfu.go            # LFU 缓存实现
-│   └── lfu_test.go       # LFU 单元测试
-├── main.go               # 示例代码
+│   ├── cache.go                # 核心缓存实现
+│   ├── eviction.go             # 过期清理逻辑
+│   ├── stats.go                # 统计指标实现
+│   ├── generic_cache.go        # 泛型缓存包装器
+│   ├── string.go               # String 操作实现
+│   ├── list.go                 # List 数据结构实现
+│   ├── hash.go                 # Hash 数据结构实现
+│   ├── set.go                  # Set 数据结构实现
+│   ├── cache_test.go           # 单元测试
+│   ├── callback_test.go        # 回调测试
+│   ├── stats_test.go           # 统计测试
+│   ├── generic_cache_test.go   # 泛型测试
+│   ├── string_test.go          # String 测试
+│   ├── list_test.go            # List 测试
+│   ├── hash_test.go            # Hash 测试
+│   ├── set_test.go             # Set 测试
+│   ├── lru.go                  # LRU 缓存实现
+│   ├── lru_test.go             # LRU 单元测试
+│   ├── lfu.go                  # LFU 缓存实现
+│   └── lfu_test.go             # LFU 单元测试
+├── main.go                     # 示例代码
 └── README.md
 ```
 
@@ -152,6 +164,100 @@ defer stop()
 lfu.SetDecayFactor(0.8)
 ```
 
+### String 操作
+
+```go
+sc := cache.NewStringCache(cache.New())
+
+// 设置字符串
+sc.Set("key", "hello", 0)
+
+// 追加字符串
+length := sc.Append("key", " world") // 返回 11
+
+// 整数自增
+sc.Set("counter", "10", 0)
+val, _ := sc.Incr("counter") // 返回 11
+
+// 获取子字符串
+val, _ := sc.GetRange("key", 0, 4) // 返回 "hello"
+
+// 获取字符串长度
+length, _ := sc.StrLen("key") // 返回 11
+```
+
+### List 数据结构
+
+```go
+lc := cache.NewListCache()
+
+// 左侧/右侧推入
+lc.LPush("mylist", 0, "a", "b", "c") // [c, b, a]
+lc.RPush("mylist", 0, "d")           // [c, b, a, d]
+
+// 左侧/右侧弹出
+val, _ := lc.LPop("mylist") // 返回 "c"
+val, _ := lc.RPop("mylist") // 返回 "d"
+
+// 范围查询
+vals, _ := lc.LRange("mylist", 0, -1) // 返回 [b, a]
+
+// 按索引获取
+val, _ := lc.LIndex("mylist", 0) // 返回 "b"
+
+// 修剪列表
+lc.LTrim("mylist", 0, 0) // 只保留第一个元素
+```
+
+### Hash 数据结构
+
+```go
+hc := cache.NewHashCache()
+
+// 设置字段
+hc.HSetSingle("user:1", "name", 0, "Alice")
+hc.HSet("user:1", 0, map[string]any{
+    "age":  30,
+    "city": "Beijing",
+})
+
+// 获取字段
+name, _ := hc.HGet("user:1", "name") // 返回 "Alice"
+
+// 获取所有字段
+fields, _ := hc.HGetAll("user:1") // 返回 map[name:Alice age:30 city:Beijing]
+
+// 删除字段
+hc.HDel("user:1", "city")
+
+// 字段自增
+hc.HSetSingle("user:1", "score", 0, 100)
+hc.HIncrBy("user:1", "score", 0, 50) // 返回 150
+```
+
+### Set 数据结构
+
+```go
+sc := cache.NewSetCache()
+
+// 添加成员
+sc.SAdd("myset", 0, "a", "b", "c")
+
+// 检查成员
+sc.SIsMember("myset", "a") // 返回 true
+
+// 获取所有成员
+members, _ := sc.SMembers("myset")
+
+// 并集/交集/差集
+sc.SAdd("set1", 0, "a", "b", "c")
+sc.SAdd("set2", 0, "c", "d", "e")
+
+union := sc.SUnion("set1", "set2")   // 返回 [a, b, c, d, e]
+inter := sc.SInter("set1", "set2")   // 返回 [c]
+diff := sc.SDiff("set1", "set2")     // 返回 [a, b]
+```
+
 ### 定期清理
 
 ```go
@@ -262,6 +368,146 @@ stop()
 
 #### `WithLFUEvictionCallback(callback EvictionCallback) LFUCacheOption`
 为 LFUCache 设置回调。
+
+### String 操作 API
+
+#### `NewStringCache(cache *MemoryCache) *StringCache`
+创建 String 类型缓存。
+
+#### `Set(key, value string, ttl time.Duration)`
+设置字符串值。
+
+#### `Get(key string) (string, bool)`
+获取字符串值。
+
+#### `Append(key, value string) int`
+追加字符串到值末尾，返回新长度。
+
+#### `Incr(key string) (int64, error)`
+将键的值增加 1。
+
+#### `IncrBy(key string, n int64) (int64, error)`
+将键的值增加指定整数。
+
+#### `Decr(key string) (int64, error)`
+将键的值减少 1。
+
+#### `DecrBy(key string, n int64) (int64, error)`
+将键的值减少指定整数。
+
+#### `GetRange(key string, start, end int) (string, bool)`
+获取子字符串（支持负数索引）。
+
+#### `SetRange(key string, offset int, value string) int`
+覆盖字符串的指定位置。
+
+#### `StrLen(key string) (int, bool)`
+获取字符串长度。
+
+#### `GetSet(key, value string) (string, bool)`
+设置新值并返回旧值。
+
+### List 数据结构 API
+
+#### `NewListCache() *ListCache`
+创建 List 类型缓存。
+
+#### `LPush(key string, ttl time.Duration, values ...any) int`
+从左侧推入一个或多个值，返回新长度。
+
+#### `RPush(key string, ttl time.Duration, values ...any) int`
+从右侧推入一个或多个值，返回新长度。
+
+#### `LPop(key string) (any, bool)`
+从左侧弹出一个值。
+
+#### `RPop(key string) (any, bool)`
+从右侧弹出一个值。
+
+#### `LRange(key string, start, stop int) ([]any, bool)`
+获取指定范围的元素（支持负数索引）。
+
+#### `LIndex(key string, index int) (any, bool)`
+获取指定索引的元素（支持负数索引）。
+
+#### `LLen(key string) (int, bool)`
+获取列表长度。
+
+#### `LTrim(key string, start, stop int) bool`
+修剪列表到指定范围。
+
+#### `LRem(key string, count int, value any) int`
+删除指定值的元素。
+
+### Hash 数据结构 API
+
+#### `NewHashCache() *HashCache`
+创建 Hash 类型缓存。
+
+#### `HSet(key string, ttl time.Duration, fields map[string]any) int`
+设置一个或多个字段值，返回新增字段数。
+
+#### `HSetSingle(key, field string, ttl time.Duration, value any) bool`
+设置单个字段值，返回是否是新字段。
+
+#### `HGet(key, field string) (any, bool)`
+获取字段值。
+
+#### `HGetAll(key string) (map[string]any, bool)`
+获取所有字段和值。
+
+#### `HDel(key string, fields ...string) int`
+删除一个或多个字段，返回删除数量。
+
+#### `HExists(key, field string) bool`
+检查字段是否存在。
+
+#### `HLen(key string) (int, bool)`
+获取字段数量。
+
+#### `HKeys(key string) ([]string, bool)`
+获取所有字段名。
+
+#### `HVals(key string) ([]any, bool)`
+获取所有字段值。
+
+#### `HSetNX(key, field string, ttl time.Duration, value any) bool`
+字段不存在时设置值。
+
+#### `HIncrBy(key, field string, ttl time.Duration, n int64) (int64, error)`
+将字段的值增加指定整数。
+
+### Set 数据结构 API
+
+#### `NewSetCache() *SetCache`
+创建 Set 类型缓存。
+
+#### `SAdd(key string, ttl time.Duration, members ...any) int`
+添加一个或多个成员，返回新增数量。
+
+#### `SRem(key string, members ...any) int`
+移除一个或多个成员，返回移除数量。
+
+#### `SIsMember(key string, member any) bool`
+检查成员是否存在。
+
+#### `SCard(key string) (int, bool)`
+获取集合基数（大小）。
+
+#### `SMembers(key string) ([]any, bool)`
+获取所有成员。
+
+#### `SPop(key string) (any, bool)`
+随机弹出一个成员。
+
+#### `SUnion(keys ...string) []any`
+获取多个集合的并集。
+
+#### `SInter(keys ...string) []any`
+获取多个集合的交集。
+
+#### `SDiff(key1, key2 string) []any`
+获取两个集合的差集（key1 - key2）。
 
 ## 运行测试
 
