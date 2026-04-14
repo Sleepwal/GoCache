@@ -35,11 +35,23 @@ func (c *MemoryCache) deleteExpired() {
 	defer c.mu.Unlock()
 
 	now := time.Now().UnixNano()
+	expired := 0
 
 	for key, item := range c.items {
 		if item.Expiration > 0 && now > item.Expiration {
+			value := item.Value
 			delete(c.items, key)
+			expired++
+
+			// 触发回调（在锁内调用可能阻塞，需注意）
+			if c.onEvict != nil {
+				c.onEvict(key, value, TTLExpired)
+			}
 		}
+	}
+
+	if expired > 0 {
+		c.Stats.ExpiredCount.Add(int64(expired))
 	}
 }
 

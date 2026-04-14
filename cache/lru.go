@@ -19,22 +19,43 @@ type LRUCache struct {
 	items    map[string]*list.Element
 	lruList  *list.List // 双向链表，前端=最近使用，后端=最久未使用
 	mu       sync.RWMutex
+	Stats    *Stats           // 统计指标
+	onEvict  EvictionCallback // 移除回调
+}
+
+// LRUCacheOption LRU 缓存配置选项
+type LRUCacheOption func(*LRUCache)
+
+// WithLRUEvictionCallback 设置移除回调选项
+func WithLRUEvictionCallback(callback EvictionCallback) LRUCacheOption {
+	return func(c *LRUCache) {
+		c.onEvict = callback
+	}
 }
 
 // NewLRU 创建一个新的 LRU 缓存
 // capacity: 缓存容量，0 表示无限制
-func NewLRU(capacity int) *LRUCache {
-	return &LRUCache{
+func NewLRU(capacity int, opts ...LRUCacheOption) *LRUCache {
+	c := &LRUCache{
 		capacity: capacity,
 		items:    make(map[string]*list.Element),
 		lruList:  list.New(),
+		Stats:    &Stats{},
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
 // Set 添加或更新缓存项
 func (c *LRUCache) Set(key string, value any, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.Stats.Sets.Add(1)
 
 	// 如果键已存在，更新值并移到前端
 	if elem, exists := c.items[key]; exists {
@@ -74,6 +95,8 @@ func (c *LRUCache) Get(key string) (any, bool) {
 
 	elem, exists := c.items[key]
 	if !exists {
+		c.Stats.Misses.Add(1)
+		c.Stats.TTLMisses.Add(1)
 		return nil, false
 	}
 
@@ -81,12 +104,23 @@ func (c *LRUCache) Get(key string) (any, bool) {
 
 	// 检查是否过期
 	if item.expiration > 0 && time.Now().UnixNano() > item.expiration {
-		c.removeElement(elem)
+		c.removeElementWithoutCallback(elem)
+		c.Stats.Misses.Add(1)
+		c.Stats.TTLMisses.Add(1)
+		c.Stats.ExpiredCount.Add(1)
+
+		// 触发回调
+		if c.onEvict != nil {
+			c.onEvict(key, item.value, TTLExpired)
+		}
+
 		return nil, false
 	}
 
 	// 移到前端（最近使用）
 	c.lruList.MoveToFront(elem)
+	c.Stats.Hits.Add(1)
+	c.Stats.TTLHits.Add(1)
 	return item.value, true
 }
 
@@ -95,13 +129,29 @@ func (c *LRUCache) Delete(key string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.Stats.Deletes.Add(1)
+
 	elem, exists := c.items[key]
 	if !exists {
 		return false
 	}
 
-	c.removeElement(elem)
+	item := elem.Value.(*lruItem)
+	c.removeElementWithoutCallback(elem)
+
+	// 触发回调
+	if c.onEvict != nil {
+		c.onEvict(key, item.value, Manual)
+	}
+
 	return true
+}
+
+// removeElementWithoutCallback 删除指定元素（不触发回调，用于内部调用）
+func (c *LRUCache) removeElementWithoutCallback(elem *list.Element) {
+	c.lruList.Remove(elem)
+	item := elem.Value.(*lruItem)
+	delete(c.items, item.key)
 }
 
 // Exists 检查键是否存在（包括是否过期）
@@ -116,7 +166,13 @@ func (c *LRUCache) Exists(key string) bool {
 
 	item := elem.Value.(*lruItem)
 	if item.expiration > 0 && time.Now().UnixNano() > item.expiration {
-		c.removeElement(elem)
+		c.removeElementWithoutCallback(elem)
+
+		// 触发回调
+		if c.onEvict != nil {
+			c.onEvict(key, item.value, TTLExpired)
+		}
+
 		return false
 	}
 
@@ -171,4 +227,9 @@ func (c *LRUCache) removeElement(elem *list.Element) {
 	c.lruList.Remove(elem)
 	item := elem.Value.(*lruItem)
 	delete(c.items, item.key)
+
+	// 触发回调
+	if c.onEvict != nil {
+		c.onEvict(item.key, item.value, CapacityEvicted)
+	}
 }

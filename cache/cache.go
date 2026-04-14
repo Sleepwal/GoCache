@@ -5,6 +5,31 @@ import (
 	"time"
 )
 
+// EvictionReason 缓存项被移除的原因
+type EvictionReason int
+
+const (
+	Manual          EvictionReason = iota // 手动删除
+	TTLExpired                            // TTL 过期
+	CapacityEvicted                       // 容量淘汰
+)
+
+func (r EvictionReason) String() string {
+	switch r {
+	case Manual:
+		return "manual"
+	case TTLExpired:
+		return "ttl_expired"
+	case CapacityEvicted:
+		return "capacity_evicted"
+	default:
+		return "unknown"
+	}
+}
+
+// EvictionCallback 缓存项被移除时的回调函数
+type EvictionCallback func(key string, value any, reason EvictionReason)
+
 // Item 缓存项
 type Item struct {
 	Value      any
@@ -32,21 +57,42 @@ type Cache interface {
 
 // MemoryCache 内存缓存实现
 type MemoryCache struct {
-	items map[string]*Item
-	mu    sync.RWMutex
+	items    map[string]*Item
+	mu       sync.RWMutex
+	Stats    *Stats           // 统计指标
+	onEvict  EvictionCallback // 移除回调
+}
+
+// Option 缓存配置选项
+type Option func(*MemoryCache)
+
+// WithEvictionCallback 设置移除回调选项
+func WithEvictionCallback(callback EvictionCallback) Option {
+	return func(c *MemoryCache) {
+		c.onEvict = callback
+	}
 }
 
 // New 创建一个新的内存缓存
-func New() *MemoryCache {
-	return &MemoryCache{
+func New(opts ...Option) *MemoryCache {
+	c := &MemoryCache{
 		items: make(map[string]*Item),
+		Stats: &Stats{},
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
 // Set 添加或更新缓存项
 func (c *MemoryCache) Set(key string, value any, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.Stats.Sets.Add(1)
 
 	var expiration int64
 	if ttl > 0 {
@@ -66,13 +112,20 @@ func (c *MemoryCache) Get(key string) (any, bool) {
 
 	item, found := c.items[key]
 	if !found {
+		c.Stats.Misses.Add(1)
+		c.Stats.TTLMisses.Add(1)
 		return nil, false
 	}
 
 	if item.IsExpired() {
+		c.Stats.Misses.Add(1)
+		c.Stats.TTLMisses.Add(1)
+		c.Stats.ExpiredCount.Add(1)
 		return nil, false
 	}
 
+	c.Stats.Hits.Add(1)
+	c.Stats.TTLHits.Add(1)
 	return item.Value, true
 }
 
@@ -81,12 +134,20 @@ func (c *MemoryCache) Delete(key string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	_, found := c.items[key]
+	c.Stats.Deletes.Add(1)
+
+	item, found := c.items[key]
 	if !found {
 		return false
 	}
 
 	delete(c.items, key)
+
+	// 触发回调
+	if c.onEvict != nil {
+		c.onEvict(key, item.Value, Manual)
+	}
+
 	return true
 }
 
