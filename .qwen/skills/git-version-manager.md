@@ -10,7 +10,8 @@
 ## 功能说明
 此技能用于在git提交时自动管理版本号：
 1. 根据提交类型（新功能、修复等）更新 README.md 和 QWEN.md 中的版本号
-2. 创建对应的 git tag
+2. 同步更新 main.go 中的版本号示例
+3. 创建对应的 git tag
 
 ## 执行流程
 
@@ -20,11 +21,12 @@
 - **次版本 (MINOR)**: 向后兼容的新功能
 - **补丁版本 (PATCH)**: 向后兼容的bug修复
 
-### 2. 更新 README.md 和 QWEN.md
-- 读取当前 README.md 和 QWEN.md 中的版本号
+### 2. 更新 README.md、QWEN.md 和 main.go
+- 读取当前 README.md、QWEN.md 和 main.go 中的版本号
 - 根据提交类型递增对应版本号
 - 更新 README.md 中的版本信息
 - 同步更新 QWEN.md 中的版本信息
+- 同步更新 main.go 中的 `c.Set("version", "x.x.x", 0)` 示例版本号
 
 ### 3. 创建 Git Tag
 - 使用新版本号创建 annotated tag
@@ -42,6 +44,7 @@ git commit -m "feat: 添加缓存过期功能"
 # 技能自动执行
 - 更新 README.md 版本号: v1.2.0 -> v1.3.0
 - 更新 QWEN.md 版本号: v1.2.0 -> v1.3.0
+- 更新 main.go 版本号: v1.2.0 -> v1.3.0
 - 创建 tag: v1.3.0
 ```
 
@@ -67,19 +70,19 @@ git commit -m "feat: 添加缓存过期功能"
 
 ### 读取当前版本
 ```bash
-# 从 README.md 和 QWEN.md 中提取当前版本号
+# 从 README.md、QWEN.md 和 main.go 中提取当前版本号
 # 支持格式:
-# - ## 版本 v1.2.3
-# - Version: 1.2.3
-# - # GoCache v1.2.3
-# - 当前版本: v0.7.0
+# - ## 版本 v1.2.3 (README.md)
+# - 当前版本: v0.7.0 (QWEN.md)
+# - c.Set("version", "1.0.0", 0) (main.go)
 ```
 
-### 更新 README.md 和 QWEN.md
+### 更新 README.md、QWEN.md 和 main.go
 ```bash
 # 使用正则表达式替换版本号
 # 保持原有格式不变
-# 同步更新两个文件中的版本信息
+# 同步更新三个文件中的版本信息
+# main.go: 更新 c.Set("version", "x.x.x", 0) 中的版本号
 ```
 
 ### 创建 Git Tag
@@ -104,8 +107,9 @@ git tag -a v{新版本号} -m "Release v{新版本号}"
 3. 更新为: v1.3.0
 4. 更新 README.md
 5. 更新 QWEN.md
-6. 创建 tag v1.3.0
-7. 提示用户: "✅ 版本已更新至 v1.3.0，tag 已创建，README.md 和 QWEN.md 已同步更新"
+6. 更新 main.go 中的版本号
+7. 创建 tag v1.3.0
+8. 提示用户: "✅ 版本已更新至 v1.3.0，tag 已创建，README.md、QWEN.md 和 main.go 已同步更新"
 
 ### 示例2: Bug修复
 用户: "修复缓存并发问题"
@@ -115,5 +119,6 @@ git tag -a v{新版本号} -m "Release v{新版本号}"
 3. 更新为: v1.3.1
 4. 更新 README.md
 5. 更新 QWEN.md
-6. 创建 tag v1.3.1
-7. 提示用户: "✅ 版本已更新至 v1.3.1，tag 已创建，README.md 和 QWEN.md 已同步更新"
+6. 更新 main.go 中的版本号
+7. 创建 tag v1.3.1
+8. 提示用户: "✅ 版本已更新至 v1.3.1，tag 已创建，README.md、QWEN.md 和 main.go 已同步更新"

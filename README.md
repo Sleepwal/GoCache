@@ -67,6 +67,118 @@ git clone <repository-url>
 cd GoCache
 ```
 
+### 运行测试
+
+```bash
+go test ./cache -v
+go test ./server -v
+```
+
+### 启动 HTTP 服务器
+
+```bash
+# 使用默认端口 8080
+go run main.go
+
+# 或使用自定义端口（修改 main.go 配置）
+```
+
+### 测试示例
+
+#### 1. 设置缓存
+
+```bash
+# 设置字符串缓存
+curl -X POST http://localhost:8080/cache/name \
+  -H "Content-Type: application/json" \
+  -d '{"value": "GoCache", "ttl": "1h"}'
+```
+
+**响应:**
+```json
+{
+  "key": "name",
+  "message": "cache set successfully",
+  "ttl": "1h0m0s"
+}
+```
+
+#### 2. 获取缓存
+
+```bash
+curl http://localhost:8080/cache/name
+```
+
+**响应:**
+```json
+{
+  "key": "name",
+  "value": "GoCache"
+}
+```
+
+#### 3. 获取所有键
+
+```bash
+curl http://localhost:8080/cache/keys
+```
+
+**响应:**
+```json
+{
+  "keys": ["name", "version"],
+  "count": 2
+}
+```
+
+#### 4. 获取统计信息
+
+```bash
+curl http://localhost:8080/cache/stats
+```
+
+**响应:**
+```json
+{
+  "hits": 3,
+  "misses": 1,
+  "sets": 5,
+  "deletes": 2,
+  "expired": 0,
+  "ttl_hits": 2,
+  "ttl_misses": 1,
+  "hit_rate": "75.00%",
+  "total_ops": 11
+}
+```
+
+#### 5. 删除缓存
+
+```bash
+curl -X DELETE http://localhost:8080/cache/name
+```
+
+**响应:**
+```json
+{
+  "key": "name",
+  "message": "cache deleted successfully"
+}
+```
+
+#### 6. 清空缓存
+
+```bash
+curl -X POST http://localhost:8080/cache/clear
+```
+
+**响应:**
+```json
+{
+  "message": "cache cleared successfully"
+}
+```
+
 ### 使用示例
 
 ```go
@@ -654,53 +766,6 @@ go test ./cache -v
 go run main.go
 ```
 
-## 版本管理
-
-### 自动版本更新
-
-项目提供了自动版本管理脚本,会根据 git 提交信息自动:
-1. 更新版本号(语义化版本: 主版本.次版本.补丁)
-2. 更新 README 中的版本标记
-3. 创建 git tag
-
-### 版本号规则
-
-- **主版本(Major)**: 破坏性更新/BREAKING CHANGE
-- **次版本(Minor)**: 新功能/feat
-- **补丁版本(Patch)**: Bug 修复、性能优化、重构
-
-### 使用方法
-
-**Windows:**
-```bash
-# 方式 1: 使用批处理文件
-version.bat
-
-# 方式 2: 直接运行 PowerShell 脚本
-powershell -ExecutionPolicy Bypass -File scripts/version.ps1
-```
-
-**Linux/Mac:**
-```bash
-chmod +x scripts/version.sh
-./scripts/version.sh
-```
-
-### 版本提交流程
-
-```bash
-# 1. 提交代码变更
-git add .
-git commit -m "feat: 添加 LRU 淘汰策略"
-
-# 2. 运行版本更新脚本
-version.bat  # 或 ./scripts/version.sh
-
-# 3. 推送代码和 tag
-git push
-git push origin v0.2.0
-```
-
 ## 技术实现
 
 - **存储结构**: `map[string]*Item`
@@ -711,11 +776,12 @@ git push origin v0.2.0
 
 ## 后续计划
 
-- [ ] 支持 LFU 淘汰策略
-- [ ] 增加持久化功能
-- [ ] 提供 HTTP/gRPC 接口
-- [ ] 支持数据结构(String, List, Hash, Set)
+- [ ] gRPC 服务接口
+- [ ] CLI 命令行工具 (类似 redis-cli)
+- [ ] 集群/分布式支持
+- [ ] Web 管理界面
+- [ ] 更多数据结构 (Sorted Set, Stream 等)
 
 ## License
 
-MIT
+本项目采用 [GNU General Public License v3.0](LICENSE) 许可。
