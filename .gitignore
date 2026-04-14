@@ -27,10 +27,6 @@ vendor/
 *~
 .DS_Store
 
-# Qwen Code configuration
-.qwen/
-QWEN.md
-
 # OS generated files
 Thumbs.db
 ehthumbs.db
