@@ -1,6 +1,6 @@
 # GoCache
 
-**当前版本: v0.4.0**
+**当前版本: v0.5.0**
 
 一个简单的 Go 语言内存数据库(内存缓存)实现。
 
@@ -19,6 +19,8 @@
 - ✅ List 数据结构(LPUSH/RPUSH, LPOP/RPOP, LRANGE 等)
 - ✅ Hash/Map 数据结构(HSET, HGET, HGETALL 等)
 - ✅ Set 数据结构(SADD, SREM, SUNION, SINTER 等)
+- ✅ 快照/序列化持久化(JSON/Gob 格式)
+- ✅ AOF 持久化(Append-Only File)
 - ✅ 轻量级,无外部依赖
 - ✅ 自动版本管理(根据提交信息自动更新版本号和 tag)
 
@@ -368,6 +370,35 @@ stop()
 
 #### `WithLFUEvictionCallback(callback EvictionCallback) LFUCacheOption`
 为 LFUCache 设置回调。
+
+### 持久化 API
+
+#### `SaveToFile(path string) error`
+将缓存状态保存到 JSON 文件。
+
+#### `LoadFromFile(path string) error`
+从 JSON 文件恢复缓存状态。
+
+#### `SaveToFileGob(path string) error`
+使用 gob 格式保存快照（更高效，仅限 Go 使用）。
+
+#### `LoadFromFileGob(path string) error`
+使用 gob 格式加载快照。
+
+#### `NewAOFLogger(path string) (*AOFLogger, error)`
+创建 AOF 日志器。
+
+#### `Log(command string, args ...string) error`
+记录操作到 AOF 文件。
+
+#### `Replay(cache *MemoryCache) error`
+重放 AOF 文件到缓存。
+
+#### `Rewrite(cache *MemoryCache) error`
+重写 AOF 文件压缩大小。
+
+#### `Close() error`
+关闭 AOF 文件。
 
 ### String 操作 API
 
