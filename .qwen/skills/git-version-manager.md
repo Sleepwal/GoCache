@@ -9,8 +9,8 @@
 
 ## 功能说明
 此技能用于在git提交时自动管理版本号：
-1. 根据提交类型（新功能、修复等）更新README.md中的版本号
-2. 创建对应的git tag
+1. 根据提交类型（新功能、修复等）更新 README.md 和 QWEN.md 中的版本号
+2. 创建对应的 git tag
 
 ## 执行流程
 
@@ -20,14 +20,15 @@
 - **次版本 (MINOR)**: 向后兼容的新功能
 - **补丁版本 (PATCH)**: 向后兼容的bug修复
 
-### 2. 更新README.md
-- 读取当前README.md中的版本号
+### 2. 更新 README.md 和 QWEN.md
+- 读取当前 README.md 和 QWEN.md 中的版本号
 - 根据提交类型递增对应版本号
-- 更新README.md中的版本信息
+- 更新 README.md 中的版本信息
+- 同步更新 QWEN.md 中的版本信息
 
-### 3. 创建Git Tag
-- 使用新版本号创建annotated tag
-- Tag消息包含本次变更的简要说明
+### 3. 创建 Git Tag
+- 使用新版本号创建 annotated tag
+- Tag 消息包含本次变更的简要说明
 
 ## 使用方式
 
@@ -39,8 +40,9 @@ git add .
 git commit -m "feat: 添加缓存过期功能"
 
 # 技能自动执行
-- 更新README.md版本号: v1.2.0 -> v1.3.0
-- 创建tag: v1.3.0
+- 更新 README.md 版本号: v1.2.0 -> v1.3.0
+- 更新 QWEN.md 版本号: v1.2.0 -> v1.3.0
+- 创建 tag: v1.3.0
 ```
 
 ### 手动模式
@@ -65,20 +67,22 @@ git commit -m "feat: 添加缓存过期功能"
 
 ### 读取当前版本
 ```bash
-# 从README.md中提取当前版本号
+# 从 README.md 和 QWEN.md 中提取当前版本号
 # 支持格式:
 # - ## 版本 v1.2.3
 # - Version: 1.2.3
 # - # GoCache v1.2.3
+# - 当前版本: v0.7.0
 ```
 
-### 更新README.md
+### 更新 README.md 和 QWEN.md
 ```bash
 # 使用正则表达式替换版本号
 # 保持原有格式不变
+# 同步更新两个文件中的版本信息
 ```
 
-### 创建Git Tag
+### 创建 Git Tag
 ```bash
 git tag -a v{新版本号} -m "Release v{新版本号}"
 ```
@@ -98,16 +102,18 @@ git tag -a v{新版本号} -m "Release v{新版本号}"
 1. 检测到新功能提交
 2. 当前版本: v1.2.0
 3. 更新为: v1.3.0
-4. 更新README.md
-5. 创建tag v1.3.0
-6. 提示用户: "✅ 版本已更新至 v1.3.0，tag已创建"
+4. 更新 README.md
+5. 更新 QWEN.md
+6. 创建 tag v1.3.0
+7. 提示用户: "✅ 版本已更新至 v1.3.0，tag 已创建，README.md 和 QWEN.md 已同步更新"
 
 ### 示例2: Bug修复
 用户: "修复缓存并发问题"
 技能:
-1. 检测到bug修复
+1. 检测到 bug 修复
 2. 当前版本: v1.3.0
 3. 更新为: v1.3.1
-4. 更新README.md
-5. 创建tag v1.3.1
-6. 提示用户: "✅ 版本已更新至 v1.3.1，tag已创建"
+4. 更新 README.md
+5. 更新 QWEN.md
+6. 创建 tag v1.3.1
+7. 提示用户: "✅ 版本已更新至 v1.3.1，tag 已创建，README.md 和 QWEN.md 已同步更新"
