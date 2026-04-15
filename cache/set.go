@@ -14,14 +14,23 @@ type setData struct {
 
 // SetCache Set 类型缓存操作
 type SetCache struct {
-	cache map[string]*setData
-	mu    sync.RWMutex
+	cache *MemoryCache
 }
 
 // NewSetCache 创建 Set 类型缓存
 func NewSetCache() *SetCache {
 	return &SetCache{
-		cache: make(map[string]*setData),
+		cache: New(),
+	}
+}
+
+// NewSetCacheWithMemory 创建带共享 MemoryCache 的 Set 缓存
+func NewSetCacheWithMemory(mc *MemoryCache) *SetCache {
+	if mc == nil {
+		mc = New()
+	}
+	return &SetCache{
+		cache: mc,
 	}
 }
 
@@ -33,27 +42,52 @@ func (sd *setData) isExpired() bool {
 	return time.Now().UnixNano() > sd.expiration
 }
 
-// getOrCreate 获取或创建 Set 数据
-func (sc *SetCache) getOrCreate(key string, ttl time.Duration) *setData {
-	sd, found := sc.cache[key]
-	if !found || sd.isExpired() {
-		sd = &setData{
-			members: make(map[any]bool),
-		}
-		if ttl > 0 {
-			sd.expiration = time.Now().Add(ttl).UnixNano()
-		}
-		sc.cache[key] = sd
+// getSetDataIfExist 在已持有锁的情况下获取 Set 数据
+func (sc *SetCache) getSetDataIfExist(key string) (*setData, bool) {
+	item, found := sc.cache.items[key]
+	if !found || item.IsExpired() {
+		return nil, false
 	}
-	return sd
+
+	sd, ok := item.Value.(*setData)
+	if !ok {
+		return nil, false
+	}
+
+	if sd.isExpired() {
+		delete(sc.cache.items, key)
+		return nil, false
+	}
+
+	return sd, true
 }
 
 // SAdd 添加一个或多个成员
 func (sc *SetCache) SAdd(key string, ttl time.Duration, members ...any) int {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
+	sc.cache.mu.Lock()
+	defer sc.cache.mu.Unlock()
 
-	sd := sc.getOrCreate(key, ttl)
+	sc.cache.Stats.Sets.Add(1)
+
+	item, found := sc.cache.items[key]
+	var sd *setData
+
+	if found && !item.IsExpired() {
+		if s, ok := item.Value.(*setData); ok {
+			sd = s
+		}
+	}
+
+	if sd == nil {
+		sd = &setData{members: make(map[any]bool)}
+		if ttl > 0 {
+			sd.expiration = time.Now().Add(ttl).UnixNano()
+		}
+		sc.cache.items[key] = &Item{
+			Value:      sd,
+			Expiration: sd.expiration,
+		}
+	}
 
 	added := 0
 	for _, member := range members {
@@ -68,11 +102,13 @@ func (sc *SetCache) SAdd(key string, ttl time.Duration, members ...any) int {
 
 // SRem 移除一个或多个成员
 func (sc *SetCache) SRem(key string, members ...any) int {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
+	sc.cache.mu.Lock()
+	defer sc.cache.mu.Unlock()
 
-	sd, found := sc.cache[key]
-	if !found || sd.isExpired() {
+	sc.cache.Stats.Sets.Add(1)
+
+	sd, found := sc.getSetDataIfExist(key)
+	if !found {
 		return 0
 	}
 
@@ -89,11 +125,11 @@ func (sc *SetCache) SRem(key string, members ...any) int {
 
 // SIsMember 检查成员是否存在
 func (sc *SetCache) SIsMember(key string, member any) bool {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
+	sc.cache.mu.Lock()
+	defer sc.cache.mu.Unlock()
 
-	sd, found := sc.cache[key]
-	if !found || sd.isExpired() {
+	sd, found := sc.getSetDataIfExist(key)
+	if !found {
 		return false
 	}
 
@@ -102,26 +138,31 @@ func (sc *SetCache) SIsMember(key string, member any) bool {
 
 // SCard 获取集合基数（大小）
 func (sc *SetCache) SCard(key string) (int, bool) {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
+	sc.cache.mu.Lock()
+	defer sc.cache.mu.Unlock()
 
-	sd, found := sc.cache[key]
-	if !found || sd.isExpired() {
+	sd, found := sc.getSetDataIfExist(key)
+	if !found {
+		sc.cache.Stats.Misses.Add(1)
 		return 0, false
 	}
 
+	sc.cache.Stats.Hits.Add(1)
 	return len(sd.members), true
 }
 
 // SMembers 获取所有成员
 func (sc *SetCache) SMembers(key string) ([]any, bool) {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
+	sc.cache.mu.Lock()
+	defer sc.cache.mu.Unlock()
 
-	sd, found := sc.cache[key]
-	if !found || sd.isExpired() {
+	sd, found := sc.getSetDataIfExist(key)
+	if !found {
+		sc.cache.Stats.Misses.Add(1)
 		return nil, false
 	}
+
+	sc.cache.Stats.Hits.Add(1)
 
 	members := make([]any, 0, len(sd.members))
 	for member := range sd.members {
@@ -133,17 +174,21 @@ func (sc *SetCache) SMembers(key string) ([]any, bool) {
 
 // SPop 随机弹出一个成员
 func (sc *SetCache) SPop(key string) (any, bool) {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
+	sc.cache.mu.Lock()
+	defer sc.cache.mu.Unlock()
 
-	sd, found := sc.cache[key]
-	if !found || sd.isExpired() {
+	sd, found := sc.getSetDataIfExist(key)
+	if !found {
+		sc.cache.Stats.Misses.Add(1)
 		return nil, false
 	}
 
 	if len(sd.members) == 0 {
+		sc.cache.Stats.Misses.Add(1)
 		return nil, false
 	}
+
+	sc.cache.Stats.Hits.Add(1)
 
 	// 随机选择一个成员
 	for member := range sd.members {
@@ -156,14 +201,14 @@ func (sc *SetCache) SPop(key string) (any, bool) {
 
 // SUnion 获取多个集合的并集
 func (sc *SetCache) SUnion(keys ...string) []any {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
+	sc.cache.mu.Lock()
+	defer sc.cache.mu.Unlock()
 
 	union := make(map[any]bool)
 
 	for _, key := range keys {
-		sd, found := sc.cache[key]
-		if !found || sd.isExpired() {
+		sd, found := sc.getSetDataIfExist(key)
+		if !found {
 			continue
 		}
 
@@ -182,16 +227,16 @@ func (sc *SetCache) SUnion(keys ...string) []any {
 
 // SInter 获取多个集合的交集
 func (sc *SetCache) SInter(keys ...string) []any {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
+	sc.cache.mu.Lock()
+	defer sc.cache.mu.Unlock()
 
 	if len(keys) == 0 {
 		return []any{}
 	}
 
 	// 获取第一个集合
-	firstSd, found := sc.cache[keys[0]]
-	if !found || firstSd.isExpired() {
+	firstSd, found := sc.getSetDataIfExist(keys[0])
+	if !found {
 		return []any{}
 	}
 
@@ -202,8 +247,8 @@ func (sc *SetCache) SInter(keys ...string) []any {
 
 	// 与其他集合求交集
 	for _, key := range keys[1:] {
-		sd, found := sc.cache[key]
-		if !found || sd.isExpired() {
+		sd, found := sc.getSetDataIfExist(key)
+		if !found {
 			return []any{}
 		}
 
@@ -228,19 +273,19 @@ func (sc *SetCache) SInter(keys ...string) []any {
 
 // SDiff 获取两个集合的差集（key1 - key2）
 func (sc *SetCache) SDiff(key1, key2 string) []any {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
+	sc.cache.mu.Lock()
+	defer sc.cache.mu.Unlock()
 
-	sd1, found1 := sc.cache[key1]
-	if !found1 || sd1.isExpired() {
+	sd1, found1 := sc.getSetDataIfExist(key1)
+	if !found1 {
 		return []any{}
 	}
 
-	sd2, found2 := sc.cache[key2]
+	sd2, found2 := sc.getSetDataIfExist(key2)
 
 	diff := make([]any, 0)
 	for member := range sd1.members {
-		if !found2 || sd2.isExpired() || !sd2.members[member] {
+		if !found2 || !sd2.members[member] {
 			diff = append(diff, member)
 		}
 	}
@@ -250,60 +295,32 @@ func (sc *SetCache) SDiff(key1, key2 string) []any {
 
 // Delete 删除整个 Set
 func (sc *SetCache) Delete(key string) bool {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-
-	_, found := sc.cache[key]
-	if !found {
-		return false
-	}
-
-	delete(sc.cache, key)
-	return true
+	return sc.cache.Delete(key)
 }
 
 // Exists 检查 Set 是否存在
 func (sc *SetCache) Exists(key string) bool {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
-
-	sd, found := sc.cache[key]
-	if !found {
-		return false
-	}
-
-	return !sd.isExpired()
+	return sc.cache.Exists(key)
 }
 
 // Keys 返回所有未过期的键
 func (sc *SetCache) Keys() []string {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
-
-	keys := make([]string, 0, len(sc.cache))
-	for key, sd := range sc.cache {
-		if !sd.isExpired() {
-			keys = append(keys, key)
-		}
-	}
-
-	return keys
+	return sc.cache.Keys()
 }
 
 // Clear 清空所有 Set
 func (sc *SetCache) Clear() {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-
-	sc.cache = make(map[string]*setData)
+	sc.cache.Clear()
 }
 
 // Count 返回 Set 数量
 func (sc *SetCache) Count() int {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
+	return sc.cache.Count()
+}
 
-	return len(sc.cache)
+// GetCache 获取底层 MemoryCache（用于测试和高级操作）
+func (sc *SetCache) GetCache() *MemoryCache {
+	return sc.cache
 }
 
 // seedRand 初始化随机种子
@@ -311,6 +328,7 @@ var seedRand = sync.Once{}
 
 func init() {
 	seedRand.Do(func() {
-		rand.Seed(time.Now().UnixNano())
+		// Go 1.20+ auto-seeds, so this is a no-op but kept for compatibility
+		_ = rand.Intn(1)
 	})
 }

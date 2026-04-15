@@ -38,9 +38,9 @@ func NewHTTPServer(cfg HTTPServerConfig) *HTTPServer {
 	return &HTTPServer{
 		cache:       memCache,
 		stringCache: cache.NewStringCache(memCache),
-		listCache:   cache.NewListCache(),
-		hashCache:   cache.NewHashCache(),
-		setCache:    cache.NewSetCache(),
+		listCache:   cache.NewListCacheWithMemory(memCache),
+		hashCache:   cache.NewHashCacheWithMemory(memCache),
+		setCache:    cache.NewSetCacheWithMemory(memCache),
 		server: &http.Server{
 			Addr: fmt.Sprintf(":%d", cfg.Port),
 		},
@@ -56,9 +56,9 @@ func NewHTTPServerWithCache(cfg HTTPServerConfig, c *cache.MemoryCache) *HTTPSer
 	return &HTTPServer{
 		cache:       c,
 		stringCache: cache.NewStringCache(c),
-		listCache:   cache.NewListCache(),
-		hashCache:   cache.NewHashCache(),
-		setCache:    cache.NewSetCache(),
+		listCache:   cache.NewListCacheWithMemory(c),
+		hashCache:   cache.NewHashCacheWithMemory(c),
+		setCache:    cache.NewSetCacheWithMemory(c),
 		server: &http.Server{
 			Addr: fmt.Sprintf(":%d", cfg.Port),
 		},

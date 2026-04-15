@@ -447,17 +447,19 @@ func TestHTTPServer_Health(t *testing.T) {
 	if result["status"] != "ok" {
 		t.Errorf("expected status 'ok', got %v", result["status"])
 	}
-	if int(result["cache_count"].(float64)) != 1 {
-		t.Errorf("expected cache_count 1, got %v", result["cache_count"])
+	// All data structures now share the same MemoryCache,
+	// so Count() returns the total number of keys (4)
+	if int(result["cache_count"].(float64)) != 4 {
+		t.Errorf("expected cache_count 4, got %v", result["cache_count"])
 	}
-	if int(result["list_count"].(float64)) != 1 {
-		t.Errorf("expected list_count 1, got %v", result["list_count"])
+	if int(result["list_count"].(float64)) != 4 {
+		t.Errorf("expected list_count 4, got %v", result["list_count"])
 	}
-	if int(result["hash_count"].(float64)) != 1 {
-		t.Errorf("expected hash_count 1, got %v", result["hash_count"])
+	if int(result["hash_count"].(float64)) != 4 {
+		t.Errorf("expected hash_count 4, got %v", result["hash_count"])
 	}
-	if int(result["set_count"].(float64)) != 1 {
-		t.Errorf("expected set_count 1, got %v", result["set_count"])
+	if int(result["set_count"].(float64)) != 4 {
+		t.Errorf("expected set_count 4, got %v", result["set_count"])
 	}
 }
 

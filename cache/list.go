@@ -2,7 +2,6 @@ package cache
 
 import (
 	"container/list"
-	"sync"
 	"time"
 )
 
@@ -14,15 +13,51 @@ type listData struct {
 
 // ListCache List 类型缓存操作
 type ListCache struct {
-	cache map[string]*listData
-	mu    sync.RWMutex
+	cache *MemoryCache
 }
 
 // NewListCache 创建 List 类型缓存
 func NewListCache() *ListCache {
 	return &ListCache{
-		cache: make(map[string]*listData),
+		cache: New(),
 	}
+}
+
+// NewListCacheWithMemory 创建带共享 MemoryCache 的 List 缓存
+func NewListCacheWithMemory(mc *MemoryCache) *ListCache {
+	if mc == nil {
+		mc = New()
+	}
+	return &ListCache{
+		cache: mc,
+	}
+}
+
+// getOrCreateList 获取或创建列表数据
+func (lc *ListCache) getOrCreateList(key string, ttl time.Duration) *listData {
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
+
+	item, found := lc.cache.items[key]
+	if found && !item.IsExpired() {
+		if ld, ok := item.Value.(*listData); ok {
+			return ld
+		}
+	}
+
+	ld := &listData{
+		items: list.New(),
+	}
+	if ttl > 0 {
+		ld.expiration = time.Now().Add(ttl).UnixNano()
+	}
+
+	lc.cache.items[key] = &Item{
+		Value:      ld,
+		Expiration: ld.expiration,
+	}
+
+	return ld
 }
 
 // isExpired 检查列表是否过期
@@ -33,30 +68,15 @@ func (ld *listData) isExpired() bool {
 	return time.Now().UnixNano() > ld.expiration
 }
 
-// getOrCreate 获取或创建列表数据
-func (lc *ListCache) getOrCreate(key string, ttl time.Duration) *listData {
-	ld, found := lc.cache[key]
-	if !found || ld.isExpired() {
-		ld = &listData{
-			items: list.New(),
-		}
-		if ttl > 0 {
-			ld.expiration = time.Now().Add(ttl).UnixNano()
-		}
-		lc.cache[key] = ld
-	}
-	return ld
-}
-
 // LPush 从左侧推入一个或多个值
-// 例如: LPush key a b c → 列表为 [c, b, a] (最后推入的在最前面)
 func (lc *ListCache) LPush(key string, ttl time.Duration, values ...any) int {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
 
-	ld := lc.getOrCreate(key, ttl)
+	lc.cache.Stats.Sets.Add(1)
 
-	// 每个值都推到前端
+	ld := lc.getListDataLocked(key, ttl)
+
 	for _, v := range values {
 		ld.items.PushFront(v)
 	}
@@ -64,12 +84,38 @@ func (lc *ListCache) LPush(key string, ttl time.Duration, values ...any) int {
 	return ld.items.Len()
 }
 
+// getListDataLocked 在已持有锁的情况下获取列表数据
+func (lc *ListCache) getListDataLocked(key string, ttl time.Duration) *listData {
+	item, found := lc.cache.items[key]
+	if found && !item.IsExpired() {
+		if ld, ok := item.Value.(*listData); ok {
+			return ld
+		}
+	}
+
+	ld := &listData{
+		items: list.New(),
+	}
+	if ttl > 0 {
+		ld.expiration = time.Now().Add(ttl).UnixNano()
+	}
+
+	lc.cache.items[key] = &Item{
+		Value:      ld,
+		Expiration: ld.expiration,
+	}
+
+	return ld
+}
+
 // RPush 从右侧推入一个或多个值
 func (lc *ListCache) RPush(key string, ttl time.Duration, values ...any) int {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
 
-	ld := lc.getOrCreate(key, ttl)
+	lc.cache.Stats.Sets.Add(1)
+
+	ld := lc.getListDataLocked(key, ttl)
 
 	for _, v := range values {
 		ld.items.PushBack(v)
@@ -80,52 +126,80 @@ func (lc *ListCache) RPush(key string, ttl time.Duration, values ...any) int {
 
 // LPop 从左侧弹出一个值
 func (lc *ListCache) LPop(key string) (any, bool) {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
 
-	ld, found := lc.cache[key]
-	if !found || ld.isExpired() {
+	ld, found := lc.getListDataIfExist(key)
+	if !found {
+		lc.cache.Stats.Misses.Add(1)
 		return nil, false
 	}
 
 	elem := ld.items.Front()
 	if elem == nil {
+		lc.cache.Stats.Misses.Add(1)
 		return nil, false
 	}
 
 	ld.items.Remove(elem)
+	lc.cache.Stats.Hits.Add(1)
 	return elem.Value, true
+}
+
+// getListDataIfExist 在已持有锁的情况下获取列表数据
+func (lc *ListCache) getListDataIfExist(key string) (*listData, bool) {
+	item, found := lc.cache.items[key]
+	if !found || item.IsExpired() {
+		return nil, false
+	}
+
+	ld, ok := item.Value.(*listData)
+	if !ok {
+		return nil, false
+	}
+
+	if ld.isExpired() {
+		delete(lc.cache.items, key)
+		return nil, false
+	}
+
+	return ld, true
 }
 
 // RPop 从右侧弹出一个值
 func (lc *ListCache) RPop(key string) (any, bool) {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
 
-	ld, found := lc.cache[key]
-	if !found || ld.isExpired() {
+	ld, found := lc.getListDataIfExist(key)
+	if !found {
+		lc.cache.Stats.Misses.Add(1)
 		return nil, false
 	}
 
 	elem := ld.items.Back()
 	if elem == nil {
+		lc.cache.Stats.Misses.Add(1)
 		return nil, false
 	}
 
 	ld.items.Remove(elem)
+	lc.cache.Stats.Hits.Add(1)
 	return elem.Value, true
 }
 
 // LRange 获取指定范围的元素
-// start 和 stop 都支持负数索引（-1 表示最后一个元素）
 func (lc *ListCache) LRange(key string, start, stop int) ([]any, bool) {
-	lc.mu.RLock()
-	defer lc.mu.RUnlock()
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
 
-	ld, found := lc.cache[key]
-	if !found || ld.isExpired() {
+	ld, found := lc.getListDataIfExist(key)
+	if !found {
+		lc.cache.Stats.Misses.Add(1)
 		return nil, false
 	}
+
+	lc.cache.Stats.Hits.Add(1)
 
 	length := ld.items.Len()
 	if length == 0 {
@@ -172,13 +246,16 @@ func (lc *ListCache) LRange(key string, start, stop int) ([]any, bool) {
 
 // LIndex 获取指定索引的元素
 func (lc *ListCache) LIndex(key string, index int) (any, bool) {
-	lc.mu.RLock()
-	defer lc.mu.RUnlock()
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
 
-	ld, found := lc.cache[key]
-	if !found || ld.isExpired() {
+	ld, found := lc.getListDataIfExist(key)
+	if !found {
+		lc.cache.Stats.Misses.Add(1)
 		return nil, false
 	}
+
+	lc.cache.Stats.Hits.Add(1)
 
 	length := ld.items.Len()
 	if length == 0 {
@@ -207,24 +284,28 @@ func (lc *ListCache) LIndex(key string, index int) (any, bool) {
 
 // LLen 获取列表长度
 func (lc *ListCache) LLen(key string) (int, bool) {
-	lc.mu.RLock()
-	defer lc.mu.RUnlock()
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
 
-	ld, found := lc.cache[key]
-	if !found || ld.isExpired() {
+	ld, found := lc.getListDataIfExist(key)
+	if !found {
+		lc.cache.Stats.Misses.Add(1)
 		return 0, false
 	}
 
+	lc.cache.Stats.Hits.Add(1)
 	return ld.items.Len(), true
 }
 
 // LTrim 修剪列表到指定范围
 func (lc *ListCache) LTrim(key string, start, stop int) bool {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
 
-	ld, found := lc.cache[key]
-	if !found || ld.isExpired() {
+	lc.cache.Stats.Sets.Add(1)
+
+	ld, found := lc.getListDataIfExist(key)
+	if !found {
 		return false
 	}
 
@@ -247,7 +328,10 @@ func (lc *ListCache) LTrim(key string, start, stop int) bool {
 
 	// 边界检查
 	if start >= length {
-		lc.cache[key] = &listData{items: list.New()}
+		lc.cache.items[key] = &Item{
+			Value:      &listData{items: list.New(), expiration: ld.expiration},
+			Expiration: ld.expiration,
+		}
 		return true
 	}
 
@@ -256,7 +340,10 @@ func (lc *ListCache) LTrim(key string, start, stop int) bool {
 	}
 
 	if start > stop {
-		lc.cache[key] = &listData{items: list.New()}
+		lc.cache.items[key] = &Item{
+			Value:      &listData{items: list.New(), expiration: ld.expiration},
+			Expiration: ld.expiration,
+		}
 		return true
 	}
 
@@ -276,21 +363,23 @@ func (lc *ListCache) LTrim(key string, start, stop int) bool {
 	for _, v := range keep {
 		newLd.items.PushBack(v)
 	}
-	lc.cache[key] = newLd
+	lc.cache.items[key] = &Item{
+		Value:      newLd,
+		Expiration: ld.expiration,
+	}
 
 	return true
 }
 
 // LRem 从列表中删除指定值的元素
-// count > 0: 从头开始删除 count 个匹配值
-// count < 0: 从尾开始删除 |count| 个匹配值
-// count == 0: 删除所有匹配值
 func (lc *ListCache) LRem(key string, count int, value any) int {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
+	lc.cache.mu.Lock()
+	defer lc.cache.mu.Unlock()
 
-	ld, found := lc.cache[key]
-	if !found || ld.isExpired() {
+	lc.cache.Stats.Sets.Add(1)
+
+	ld, found := lc.getListDataIfExist(key)
+	if !found {
 		return 0
 	}
 
@@ -334,58 +423,30 @@ func (lc *ListCache) LRem(key string, count int, value any) int {
 
 // Delete 删除整个列表
 func (lc *ListCache) Delete(key string) bool {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
-
-	_, found := lc.cache[key]
-	if !found {
-		return false
-	}
-
-	delete(lc.cache, key)
-	return true
+	return lc.cache.Delete(key)
 }
 
 // Exists 检查列表是否存在
 func (lc *ListCache) Exists(key string) bool {
-	lc.mu.RLock()
-	defer lc.mu.RUnlock()
-
-	ld, found := lc.cache[key]
-	if !found {
-		return false
-	}
-
-	return !ld.isExpired()
+	return lc.cache.Exists(key)
 }
 
 // Keys 返回所有未过期的键
 func (lc *ListCache) Keys() []string {
-	lc.mu.RLock()
-	defer lc.mu.RUnlock()
-
-	keys := make([]string, 0, len(lc.cache))
-	for key, ld := range lc.cache {
-		if !ld.isExpired() {
-			keys = append(keys, key)
-		}
-	}
-
-	return keys
+	return lc.cache.Keys()
 }
 
 // Clear 清空所有列表
 func (lc *ListCache) Clear() {
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
-
-	lc.cache = make(map[string]*listData)
+	lc.cache.Clear()
 }
 
 // Count 返回列表数量
 func (lc *ListCache) Count() int {
-	lc.mu.RLock()
-	defer lc.mu.RUnlock()
+	return lc.cache.Count()
+}
 
-	return len(lc.cache)
+// GetCache 获取底层 MemoryCache（用于测试和高级操作）
+func (lc *ListCache) GetCache() *MemoryCache {
+	return lc.cache
 }
