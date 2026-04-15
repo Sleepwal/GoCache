@@ -4,7 +4,9 @@
       "Bash(go *)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Bash(git tag *)",
+      "Bash(mkdir *)"
     ]
   },
   "$version": 3

@@ -208,6 +208,38 @@ func (c *MemoryCache) Get(key string) (any, bool) {
 	return item.Value, true
 }
 
+// GetDel 原子地获取值并删除键
+func (c *MemoryCache) GetDel(key string) (any, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	item, found := c.items[key]
+	if !found {
+		c.Stats.Misses.Add(1)
+		c.Stats.TTLMisses.Add(1)
+		return nil, false
+	}
+
+	if item.IsExpired() {
+		delete(c.items, key)
+		c.Stats.Misses.Add(1)
+		c.Stats.TTLMisses.Add(1)
+		c.Stats.ExpiredCount.Add(1)
+		if c.onEvict != nil {
+			c.onEvict(key, item.Value, TTLExpired)
+		}
+		return nil, false
+	}
+
+	delete(c.items, key)
+	c.Stats.Deletes.Add(1)
+	if c.onEvict != nil {
+		c.onEvict(key, item.Value, Manual)
+	}
+
+	return item.Value, true
+}
+
 // Delete 删除缓存项
 func (c *MemoryCache) Delete(key string) bool {
 	c.mu.Lock()
