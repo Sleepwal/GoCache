@@ -132,53 +132,42 @@ git tag -a v{新版本号} -m "Release v{新版本号}"
 
 ## 示例
 
-### 示例 1: 新功能提交
-
-**用户**：提交缓存过期功能的代码
+### 示例 1: feat - 新功能
 
 ```bash
 git commit -m "feat: 新增缓存过期功能"
 ```
 
-**技能**：
-1. 检测到新功能提交（feat）
-2. 当前版本: v1.2.0
-3. 更新为: v1.3.0
-4. 更新 README.md
-5. 更新 AGENT.md
-6. 更新 main.go 中的版本号
-7. 创建 tag v1.3.0
-8. 提示用户: "✅ 版本已更新至 v1.3.0，Tag 已创建，README.md、AGENT.md 和 main.go 已同步更新"
+技能自动执行：
+1. 检测到 `feat`，更新 MINOR 版本
+2. 更新 README.md、AGENT.md、main.go
+3. 创建 tag v1.x.0
 
-### 示例 2: Bug 修复
-
-**用户**：修复缓存并发问题
+### 示例 2: fix - Bug 修复
 
 ```bash
 git commit -m "fix: 修复缓存并发问题"
 ```
 
-**技能**：
-1. 检测到 Bug 修复（fix）
-2. 当前版本: v1.3.0
-3. 更新为: v1.3.1
-4. 更新 README.md
-5. 更新 AGENT.md
-6. 更新 main.go 中的版本号
-7. 创建 tag v1.3.1
-8. 提示用户: "✅ 版本已更新至 v1.3.1，Tag 已创建，README.md、AGENT.md 和 main.go 已同步更新"
+技能自动执行：
+1. 检测到 `fix`，更新 PATCH 版本
+2. 更新 README.md、AGENT.md、main.go
+3. 创建 tag v1.x.x
 
-### 示例 3: 性能优化
-
-**用户**：优化内存分配策略
+### 示例 3: docs - 文档更新
 
 ```bash
-git commit -m "perf: 优化内存分配策略"
+git commit -m "docs: 更新API文档"
 ```
 
-**技能**：
-1. 检测到性能优化（perf）
-2. 当前版本: v1.3.1
-3. 更新为: v1.3.2
-4. 更新 README.md、AGENT.md、main.go
-5. 创建 tag v1.3.2
+`docs` 类型不触发版本更新，仅提交文档。
+
+## 详细示例参考
+
+更多详细的提交示例和模板请查看：[reference/commit-examples.md](reference/commit-examples.md)
+
+包含：
+- 9 种提交类型的完整示例
+- 多模块同时更新的提交示例
+- 版本更新对照表
+- feat/fix/perf 类型的提交模板
