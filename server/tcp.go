@@ -87,70 +87,70 @@ func NewTCPServerWithCache(cfg TCPServerConfig, c *cache.MemoryCache) *TCPServer
 func (ts *TCPServer) registerCommands() {
 	ts.commands = map[string]CommandHandler{
 		// Connection
-		"ping":      ts.cmdPing,
-		"echo":      ts.cmdEcho,
-		"select":    ts.cmdSelect,
-		"quit":      ts.cmdQuit,
-		"command":   ts.cmdCommand,
-		"info":      ts.cmdInfo,
-		"dbsize":    ts.cmdDBSize,
-		"flushdb":   ts.cmdFlushDB,
-		"flushall":  ts.cmdFlushAll,
-		"time":      ts.cmdTime,
-		"lastsave":  ts.cmdLastSave,
+		"ping":     ts.cmdPing,
+		"echo":     ts.cmdEcho,
+		"select":   ts.cmdSelect,
+		"quit":     ts.cmdQuit,
+		"command":  ts.cmdCommand,
+		"info":     ts.cmdInfo,
+		"dbsize":   ts.cmdDBSize,
+		"flushdb":  ts.cmdFlushDB,
+		"flushall": ts.cmdFlushAll,
+		"time":     ts.cmdTime,
+		"lastsave": ts.cmdLastSave,
 		// Key
-		"set":       ts.cmdSet,
-		"get":       ts.cmdGet,
-		"getdel":    ts.cmdGetDel,
-		"del":       ts.cmdDel,
-		"exists":    ts.cmdExists,
-		"keys":      ts.cmdKeys,
-		"expire":    ts.cmdExpire,
-		"ttl":       ts.cmdTTL,
-		"pttl":      ts.cmdPTTL,
-		"persist":   ts.cmdPersist,
-		"type":      ts.cmdType,
-		"rename":    ts.cmdRename,
-		"scan":      ts.cmdScan,
+		"set":     ts.cmdSet,
+		"get":     ts.cmdGet,
+		"getdel":  ts.cmdGetDel,
+		"del":     ts.cmdDel,
+		"exists":  ts.cmdExists,
+		"keys":    ts.cmdKeys,
+		"expire":  ts.cmdExpire,
+		"ttl":     ts.cmdTTL,
+		"pttl":    ts.cmdPTTL,
+		"persist": ts.cmdPersist,
+		"type":    ts.cmdType,
+		"rename":  ts.cmdRename,
+		"scan":    ts.cmdScan,
 		// String
-		"append":    ts.cmdAppend,
-		"incr":      ts.cmdIncr,
-		"decr":      ts.cmdDecr,
-		"incrby":    ts.cmdIncrBy,
-		"decrby":    ts.cmdDecrBy,
+		"append":      ts.cmdAppend,
+		"incr":        ts.cmdIncr,
+		"decr":        ts.cmdDecr,
+		"incrby":      ts.cmdIncrBy,
+		"decrby":      ts.cmdDecrBy,
 		"incrbyfloat": ts.cmdIncrByFloat,
-		"strlen":    ts.cmdStrLen,
-		"getrange":  ts.cmdGetRange,
-		"setrange":  ts.cmdSetRange,
-		"getset":    ts.cmdGetSet,
-		"mget":      ts.cmdMGet,
-		"mset":      ts.cmdMSet,
-		"setnx":     ts.cmdSetNX,
-		"setex":     ts.cmdSetEX,
+		"strlen":      ts.cmdStrLen,
+		"getrange":    ts.cmdGetRange,
+		"setrange":    ts.cmdSetRange,
+		"getset":      ts.cmdGetSet,
+		"mget":        ts.cmdMGet,
+		"mset":        ts.cmdMSet,
+		"setnx":       ts.cmdSetNX,
+		"setex":       ts.cmdSetEX,
 		// List
-		"lpush":     ts.cmdLPush,
-		"rpush":     ts.cmdRPush,
-		"lpop":      ts.cmdLPop,
-		"rpop":      ts.cmdRPop,
-		"lrange":    ts.cmdLRange,
-		"lindex":    ts.cmdLIndex,
-		"llen":      ts.cmdLLen,
-		"ltrim":     ts.cmdLTrim,
-		"lrem":      ts.cmdLRem,
+		"lpush":  ts.cmdLPush,
+		"rpush":  ts.cmdRPush,
+		"lpop":   ts.cmdLPop,
+		"rpop":   ts.cmdRPop,
+		"lrange": ts.cmdLRange,
+		"lindex": ts.cmdLIndex,
+		"llen":   ts.cmdLLen,
+		"ltrim":  ts.cmdLTrim,
+		"lrem":   ts.cmdLRem,
 		// Hash
-		"hset":      ts.cmdHSet,
-		"hget":      ts.cmdHGet,
-		"hgetall":   ts.cmdHGetAll,
-		"hdel":      ts.cmdHDel,
-		"hexists":   ts.cmdHExists,
-		"hlen":      ts.cmdHLen,
-		"hkeys":     ts.cmdHKeys,
-		"hvals":     ts.cmdHVals,
-		"hsetnx":    ts.cmdHSetNX,
-		"hincrby":   ts.cmdHIncrBy,
+		"hset":         ts.cmdHSet,
+		"hget":         ts.cmdHGet,
+		"hgetall":      ts.cmdHGetAll,
+		"hdel":         ts.cmdHDel,
+		"hexists":      ts.cmdHExists,
+		"hlen":         ts.cmdHLen,
+		"hkeys":        ts.cmdHKeys,
+		"hvals":        ts.cmdHVals,
+		"hsetnx":       ts.cmdHSetNX,
+		"hincrby":      ts.cmdHIncrBy,
 		"hincrbyfloat": ts.cmdHIncrByFloat,
-		"hmset":     ts.cmdHMSet,
-		"hmget":     ts.cmdHMGet,
+		"hmset":        ts.cmdHMSet,
+		"hmget":        ts.cmdHMGet,
 		// Set
 		"sadd":      ts.cmdSAdd,
 		"srem":      ts.cmdSRem,
@@ -162,20 +162,20 @@ func (ts *TCPServer) registerCommands() {
 		"sinter":    ts.cmdSInter,
 		"sdiff":     ts.cmdSDiff,
 		// Sorted Set
-		"zadd":      ts.cmdZAdd,
-		"zrem":      ts.cmdZRem,
-		"zscore":    ts.cmdZScore,
-		"zcard":     ts.cmdZCard,
-		"zrank":     ts.cmdZRank,
-		"zrevrank":  ts.cmdZRevRank,
-		"zrange":    ts.cmdZRange,
-		"zrevrange": ts.cmdZRevRange,
-		"zrangebyscore":  ts.cmdZRangeByScore,
+		"zadd":             ts.cmdZAdd,
+		"zrem":             ts.cmdZRem,
+		"zscore":           ts.cmdZScore,
+		"zcard":            ts.cmdZCard,
+		"zrank":            ts.cmdZRank,
+		"zrevrank":         ts.cmdZRevRank,
+		"zrange":           ts.cmdZRange,
+		"zrevrange":        ts.cmdZRevRange,
+		"zrangebyscore":    ts.cmdZRangeByScore,
 		"zrevrangebyscore": ts.cmdZRevRangeByScore,
-		"zcount":    ts.cmdZCount,
-		"zincrby":   ts.cmdZIncrBy,
-		"zpopmin":   ts.cmdZPopMin,
-		"zpopmax":   ts.cmdZPopMax,
+		"zcount":           ts.cmdZCount,
+		"zincrby":          ts.cmdZIncrBy,
+		"zpopmin":          ts.cmdZPopMin,
+		"zpopmax":          ts.cmdZPopMax,
 		"zremrangebyrank":  ts.cmdZRemRangeByRank,
 		"zremrangebyscore": ts.cmdZRemRangeByScore,
 	}
@@ -214,6 +214,8 @@ func (ts *TCPServer) Start() error {
 		ts.clients[conn] = c
 		ts.mu.Unlock()
 
+		logger.Info("client connected", "remote", conn.RemoteAddr().String(), "clients", ts.ClientCount()+1)
+
 		go ts.handleConnection(c)
 	}
 
@@ -232,6 +234,7 @@ func (ts *TCPServer) StartAsync() <-chan error {
 
 func (ts *TCPServer) Stop() error {
 	ts.running = false
+	logger.Info("RESP TCP server stopping", "clients", ts.ClientCount())
 
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -256,11 +259,13 @@ func (ts *TCPServer) ClientCount() int {
 }
 
 func (ts *TCPServer) handleConnection(c *client) {
+	remote := c.conn.RemoteAddr().String()
 	defer func() {
 		c.conn.Close()
 		ts.mu.Lock()
 		delete(ts.clients, c.conn)
 		ts.mu.Unlock()
+		logger.Info("client disconnected", "remote", remote, "clients", ts.ClientCount()-1)
 	}()
 
 	for {
@@ -272,6 +277,7 @@ func (ts *TCPServer) handleConnection(c *client) {
 			if strings.Contains(err.Error(), "use of closed") || strings.Contains(err.Error(), "reset") || strings.Contains(err.Error(), "EOF") {
 				return
 			}
+			logger.Warn("command read error", "remote", remote, "error", err)
 			c.writer.WriteError(fmt.Sprintf("ERR %s", err.Error()))
 			return
 		}
@@ -280,11 +286,13 @@ func (ts *TCPServer) handleConnection(c *client) {
 
 		handler, ok := ts.commands[cmd]
 		if !ok {
+			logger.Warn("unknown command", "remote", remote, "command", cmd)
 			c.writer.WriteError(fmt.Sprintf("ERR unknown command '%s'", cmd))
 			continue
 		}
 
 		if err := handler(c, args); err != nil {
+			logger.Error("command execution error", "remote", remote, "command", cmd, "error", err)
 			c.writer.WriteError(fmt.Sprintf("ERR %s", err.Error()))
 		}
 	}

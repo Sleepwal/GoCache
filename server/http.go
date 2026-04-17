@@ -72,6 +72,7 @@ func NewHTTPServerWithCache(cfg HTTPServerConfig, c *cache.MemoryCache) *HTTPSer
 func (hs *HTTPServer) Start() error {
 	hs.startTime = time.Now()
 	hs.setupRoutes()
+	logger.Info("HTTP server starting", "addr", hs.server.Addr)
 	return hs.server.ListenAndServe()
 }
 
@@ -88,6 +89,7 @@ func (hs *HTTPServer) StartAsync() <-chan error {
 
 // Stop 停止 HTTP 服务器
 func (hs *HTTPServer) Stop() error {
+	logger.Info("HTTP server stopping")
 	return hs.server.Close()
 }
 
@@ -1286,6 +1288,11 @@ func (hs *HTTPServer) sendJSON(w http.ResponseWriter, status int, data any) {
 
 // sendError 发送错误响应
 func (hs *HTTPServer) sendError(w http.ResponseWriter, status int, message string) {
+	if status >= 500 {
+		logger.Error("http server error", "status", status, "message", message)
+	} else if status >= 400 {
+		logger.Warn("http client error", "status", status, "message", message)
+	}
 	hs.sendJSON(w, status, map[string]any{
 		"error":   http.StatusText(status),
 		"message": message,
