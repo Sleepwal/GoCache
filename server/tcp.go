@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strconv"
@@ -16,19 +17,22 @@ import (
 type CommandHandler func(c *client, args []string) error
 
 type TCPServer struct {
-	cache          *cache.MemoryCache
-	stringCache    *cache.StringCache
-	listCache      *cache.ListCache
-	hashCache      *cache.HashCache
-	setCache       *cache.SetCache
-	sortedSetCache *cache.SortedSetCache
-	listener       net.Listener
-	config         TCPServerConfig
-	commands       map[string]CommandHandler
-	clients        map[net.Conn]*client
-	mu             sync.RWMutex
-	running        bool
-	startTime      time.Time
+	cache              *cache.MemoryCache
+	stringCache        *cache.StringCache
+	listCache          *cache.ListCache
+	hashCache          *cache.HashCache
+	setCache           *cache.SetCache
+	sortedSetCache     *cache.SortedSetCache
+	transactionManager *cache.TransactionManager
+	appConfig          *cache.Config
+	metrics            *cache.MetricsCollector
+	listener           net.Listener
+	tcpConfig          TCPServerConfig
+	commands           map[string]CommandHandler
+	clients            map[net.Conn]*client
+	mu                 sync.RWMutex
+	running            bool
+	startTime          time.Time
 }
 
 type TCPServerConfig struct {
@@ -41,6 +45,8 @@ type client struct {
 	reader *resp.Reader
 	db     int
 	server *TCPServer
+	tx     *cache.Transaction
+	authed bool
 }
 
 func NewTCPServer(cfg TCPServerConfig) *TCPServer {
@@ -50,14 +56,15 @@ func NewTCPServer(cfg TCPServerConfig) *TCPServer {
 
 	mc := cache.New()
 	ts := &TCPServer{
-		cache:          mc,
-		stringCache:    cache.NewStringCache(mc),
-		listCache:      cache.NewListCacheWithMemory(mc),
-		hashCache:      cache.NewHashCacheWithMemory(mc),
-		setCache:       cache.NewSetCacheWithMemory(mc),
-		sortedSetCache: cache.NewSortedSetCacheWithMemory(mc),
-		config:         cfg,
-		clients:        make(map[net.Conn]*client),
+		cache:              mc,
+		stringCache:        cache.NewStringCache(mc),
+		listCache:          cache.NewListCacheWithMemory(mc),
+		hashCache:          cache.NewHashCacheWithMemory(mc),
+		setCache:           cache.NewSetCacheWithMemory(mc),
+		sortedSetCache:     cache.NewSortedSetCacheWithMemory(mc),
+		transactionManager: cache.NewTransactionManager(mc),
+		tcpConfig:          cfg,
+		clients:            make(map[net.Conn]*client),
 	}
 
 	ts.registerCommands()
@@ -70,14 +77,15 @@ func NewTCPServerWithCache(cfg TCPServerConfig, c *cache.MemoryCache) *TCPServer
 	}
 
 	ts := &TCPServer{
-		cache:          c,
-		stringCache:    cache.NewStringCache(c),
-		listCache:      cache.NewListCacheWithMemory(c),
-		hashCache:      cache.NewHashCacheWithMemory(c),
-		setCache:       cache.NewSetCacheWithMemory(c),
-		sortedSetCache: cache.NewSortedSetCacheWithMemory(c),
-		config:         cfg,
-		clients:        make(map[net.Conn]*client),
+		cache:              c,
+		stringCache:        cache.NewStringCache(c),
+		listCache:          cache.NewListCacheWithMemory(c),
+		hashCache:          cache.NewHashCacheWithMemory(c),
+		setCache:           cache.NewSetCacheWithMemory(c),
+		sortedSetCache:     cache.NewSortedSetCacheWithMemory(c),
+		transactionManager: cache.NewTransactionManager(c),
+		tcpConfig:          cfg,
+		clients:            make(map[net.Conn]*client),
 	}
 
 	ts.registerCommands()
@@ -178,20 +186,55 @@ func (ts *TCPServer) registerCommands() {
 		"zpopmax":          ts.cmdZPopMax,
 		"zremrangebyrank":  ts.cmdZRemRangeByRank,
 		"zremrangebyscore": ts.cmdZRemRangeByScore,
+		// Transaction
+		"multi":   ts.cmdMulti,
+		"exec":    ts.cmdExec,
+		"discard": ts.cmdDiscard,
+		"watch":   ts.cmdWatch,
+		"unwatch": ts.cmdUnwatch,
+		// Auth
+		"auth": ts.cmdAuth,
 	}
 }
 
 func (ts *TCPServer) Start() error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", ts.config.Port))
-	if err != nil {
-		return fmt.Errorf("failed to listen on port %d: %w", ts.config.Port, err)
+	var ln net.Listener
+	var err error
+
+	addr := fmt.Sprintf(":%d", ts.tcpConfig.Port)
+
+	if ts.appConfig != nil && ts.appConfig.IsTLSEnabled() {
+		certFile := ts.appConfig.GetTLSCertFile()
+		keyFile := ts.appConfig.GetTLSKeyFile()
+
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS certificate: %w", err)
+		}
+
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+
+		ln, err = tls.Listen("tcp", addr, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("failed to listen with TLS on port %d: %w", ts.tcpConfig.Port, err)
+		}
+
+		logger.Info("RESP TCP server started with TLS", "port", ts.tcpConfig.Port)
+	} else {
+		ln, err = net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("failed to listen on port %d: %w", ts.tcpConfig.Port, err)
+		}
+
+		logger.Info("RESP TCP server started", "port", ts.tcpConfig.Port)
 	}
 
 	ts.listener = ln
 	ts.running = true
 	ts.startTime = time.Now()
-
-	logger.Info("RESP TCP server started", "port", ts.config.Port)
 
 	for ts.running {
 		conn, err := ln.Accept()
@@ -214,7 +257,11 @@ func (ts *TCPServer) Start() error {
 		ts.clients[conn] = c
 		ts.mu.Unlock()
 
-		logger.Info("client connected", "remote", conn.RemoteAddr().String(), "clients", ts.ClientCount()+1)
+		if ts.metrics != nil {
+			ts.metrics.AddConnectedClient()
+		}
+
+		logger.Info("client connected", "remote", conn.RemoteAddr().String(), "clients", ts.ClientCount())
 
 		go ts.handleConnection(c)
 	}
@@ -265,7 +312,10 @@ func (ts *TCPServer) handleConnection(c *client) {
 		ts.mu.Lock()
 		delete(ts.clients, c.conn)
 		ts.mu.Unlock()
-		logger.Info("client disconnected", "remote", remote, "clients", ts.ClientCount()-1)
+		if ts.metrics != nil {
+			ts.metrics.RemoveConnectedClient()
+		}
+		logger.Info("client disconnected", "remote", remote, "clients", ts.ClientCount())
 	}()
 
 	for {
@@ -284,11 +334,47 @@ func (ts *TCPServer) handleConnection(c *client) {
 
 		cmd = strings.ToLower(cmd)
 
+		if ts.appConfig != nil && ts.appConfig.RequireAuth() && !c.authed {
+			if cmd != "auth" {
+				c.writer.WriteError("NOAUTH Authentication required")
+				continue
+			}
+		}
+
+		if c.tx != nil && c.tx.State == cache.TxMulti {
+			switch cmd {
+			case "exec":
+				if err := ts.cmdExec(c, args); err != nil {
+					logger.Error("command execution error", "remote", remote, "command", cmd, "error", err)
+					c.writer.WriteError(fmt.Sprintf("ERR %s", err.Error()))
+				}
+			case "discard":
+				if err := ts.cmdDiscard(c, args); err != nil {
+					c.writer.WriteError(fmt.Sprintf("ERR %s", err.Error()))
+				}
+			case "multi":
+				c.writer.WriteError("ERR MULTI calls can not be nested")
+			case "watch":
+				c.writer.WriteError("ERR WATCH inside MULTI is not allowed")
+			default:
+				if err := c.server.transactionManager.QueueCommand(c.tx, cmd, args); err != nil {
+					c.writer.WriteError(fmt.Sprintf("ERR %s", err.Error()))
+				} else {
+					c.writer.WriteSimpleString("QUEUED")
+				}
+			}
+			continue
+		}
+
 		handler, ok := ts.commands[cmd]
 		if !ok {
 			logger.Warn("unknown command", "remote", remote, "command", cmd)
 			c.writer.WriteError(fmt.Sprintf("ERR unknown command '%s'", cmd))
 			continue
+		}
+
+		if ts.metrics != nil {
+			ts.metrics.RecordCommand()
 		}
 
 		if err := handler(c, args); err != nil {
@@ -339,7 +425,7 @@ func (ts *TCPServer) cmdCommand(c *client, args []string) error {
 func (ts *TCPServer) cmdInfo(c *client, args []string) error {
 	snapshot := ts.cache.Stats.GetSnapshot()
 	info := fmt.Sprintf("# Server\r\nredis_version:GoCache-1.1.0\r\ntcp_port:%d\r\nuptime_in_seconds:%d\r\n# Stats\r\nkeyspace_hits:%d\r\nkeyspace_misses:%d\r\n",
-		ts.config.Port, int(time.Since(ts.startTime).Seconds()), snapshot.Hits, snapshot.Misses)
+		ts.tcpConfig.Port, int(time.Since(ts.startTime).Seconds()), snapshot.Hits, snapshot.Misses)
 	return c.writer.WriteBulkString(info)
 }
 
@@ -1533,6 +1619,108 @@ func (ts *TCPServer) cmdZRemRangeByScore(c *client, args []string) error {
 	return c.writer.WriteInteger(int64(removed))
 }
 
+// ===================== Transaction Commands =====================
+
+func (ts *TCPServer) cmdMulti(c *client, args []string) error {
+	if c.tx != nil && c.tx.State == cache.TxMulti {
+		return c.writer.WriteError("ERR MULTI calls can not be nested")
+	}
+
+	c.tx = ts.transactionManager.Begin()
+	logger.Info("transaction started", "remote", c.conn.RemoteAddr().String())
+	return c.writer.WriteOK()
+}
+
+func (ts *TCPServer) cmdExec(c *client, args []string) error {
+	if c.tx == nil || c.tx.State != cache.TxMulti {
+		return c.writer.WriteError("ERR EXEC without MULTI")
+	}
+
+	results, err := ts.transactionManager.Exec(c.tx, func(cmd string, cmdArgs []string) error {
+		handler, ok := ts.commands[cmd]
+		if !ok {
+			return fmt.Errorf("unknown command '%s'", cmd)
+		}
+		return handler(c, cmdArgs)
+	})
+
+	if err != nil {
+		return c.writer.WriteError(fmt.Sprintf("ERR %s", err.Error()))
+	}
+
+	if results == nil {
+		return c.writer.WriteNullArray()
+	}
+
+	vals := make([]resp.Value, len(results))
+	for i, e := range results {
+		if e != nil {
+			vals[i] = resp.NewError(e.Error())
+		} else {
+			vals[i] = resp.NewSimpleString("OK")
+		}
+	}
+
+	c.tx = nil
+	return c.writer.WriteArray(vals)
+}
+
+func (ts *TCPServer) cmdDiscard(c *client, args []string) error {
+	if c.tx == nil || c.tx.State != cache.TxMulti {
+		return c.writer.WriteError("ERR DISCARD without MULTI")
+	}
+
+	ts.transactionManager.Discard(c.tx)
+	c.tx = nil
+	return c.writer.WriteOK()
+}
+
+func (ts *TCPServer) cmdWatch(c *client, args []string) error {
+	if len(args) < 1 {
+		return c.writer.WriteError("ERR wrong number of arguments for 'watch' command")
+	}
+
+	if c.tx != nil && c.tx.State == cache.TxMulti {
+		return c.writer.WriteError("ERR WATCH inside MULTI is not allowed")
+	}
+
+	if c.tx == nil {
+		c.tx = &cache.Transaction{}
+	}
+
+	if err := ts.transactionManager.Watch(c.tx, args...); err != nil {
+		return c.writer.WriteError(fmt.Sprintf("ERR %s", err.Error()))
+	}
+
+	return c.writer.WriteOK()
+}
+
+func (ts *TCPServer) cmdUnwatch(c *client, args []string) error {
+	if c.tx != nil {
+		ts.transactionManager.Unwatch(c.tx)
+	}
+	return c.writer.WriteOK()
+}
+
+func (ts *TCPServer) cmdAuth(c *client, args []string) error {
+	if len(args) != 1 {
+		return c.writer.WriteError("ERR wrong number of arguments for 'auth' command")
+	}
+
+	if ts.appConfig == nil || !ts.appConfig.RequireAuth() {
+		return c.writer.WriteError("ERR Client sent AUTH, but no password is set")
+	}
+
+	if ts.appConfig.CheckPassword(args[0]) {
+		c.authed = true
+		logger.Info("client authenticated", "remote", c.conn.RemoteAddr().String())
+		return c.writer.WriteOK()
+	}
+
+	logger.Warn("authentication failed", "remote", c.conn.RemoteAddr().String())
+	return c.writer.WriteError("ERR invalid password")
+}
+
 // ===================== Helper Functions =====================
 
 func zsetMembersToStrings(members []cache.ScoredMember) []string {
@@ -1575,4 +1763,16 @@ func simpleMatch(pattern, s string) bool {
 	}
 
 	return pi == len(pattern) && si == len(s)
+}
+
+func (ts *TCPServer) SetConfig(cfg *cache.Config) {
+	ts.appConfig = cfg
+}
+
+func (ts *TCPServer) SetMetrics(m *cache.MetricsCollector) {
+	ts.metrics = m
+}
+
+func (ts *TCPServer) GetMetrics() *cache.MetricsCollector {
+	return ts.metrics
 }

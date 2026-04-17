@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,6 +21,8 @@ type HTTPServer struct {
 	hashCache      *cache.HashCache
 	setCache       *cache.SetCache
 	sortedSetCache *cache.SortedSetCache
+	metrics        *cache.MetricsCollector
+	appConfig      *cache.Config
 	server         *http.Server
 	startTime      time.Time
 }
@@ -73,6 +76,27 @@ func (hs *HTTPServer) Start() error {
 	hs.startTime = time.Now()
 	hs.setupRoutes()
 	logger.Info("HTTP server starting", "addr", hs.server.Addr)
+
+	if hs.appConfig != nil && hs.appConfig.IsTLSEnabled() {
+		certFile := hs.appConfig.GetTLSCertFile()
+		keyFile := hs.appConfig.GetTLSKeyFile()
+
+		cfg := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+
+		var err error
+		cfg.Certificates = make([]tls.Certificate, 1)
+		cfg.Certificates[0], err = tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS certificate: %w", err)
+		}
+
+		hs.server.TLSConfig = cfg
+		logger.Info("HTTP server starting with TLS")
+		return hs.server.ListenAndServeTLS("", "")
+	}
+
 	return hs.server.ListenAndServe()
 }
 
@@ -121,6 +145,9 @@ func (hs *HTTPServer) setupRoutes() {
 
 	// Health endpoint
 	mux.HandleFunc("/health", hs.corsMiddleware(hs.healthHandler))
+
+	// Metrics endpoint (Prometheus format)
+	mux.HandleFunc("/metrics", hs.corsMiddleware(hs.metricsHandler))
 
 	hs.server.Handler = hs.loggingMiddleware(mux)
 }
@@ -336,6 +363,30 @@ func (hs *HTTPServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		"hash_count":  hs.hashCache.Count(),
 		"set_count":   hs.setCache.Count(),
 	})
+}
+
+func (hs *HTTPServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if hs.metrics == nil {
+		hs.sendError(w, http.StatusNotFound, "metrics not enabled")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(hs.metrics.PrometheusFormat(hs.cache)))
+}
+
+func (hs *HTTPServer) SetMetrics(m *cache.MetricsCollector) {
+	hs.metrics = m
+}
+
+func (hs *HTTPServer) SetConfig(cfg *cache.Config) {
+	hs.appConfig = cfg
 }
 
 // ===================== String Handlers =====================
