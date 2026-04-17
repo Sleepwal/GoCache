@@ -3,13 +3,13 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"GoCache/cache"
+	"GoCache/logger"
 )
 
 // HTTPServer HTTP 缓存服务器
@@ -1308,18 +1308,18 @@ func (hs *HTTPServer) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		
-		// Wrap response writer to capture status code
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		
 		next.ServeHTTP(rw, r)
 		
 		duration := time.Since(start)
-		log.Printf("[%s] %s %s %d %s", 
-			r.Method, 
-			r.URL.Path, 
-			http.StatusText(rw.statusCode), 
-			rw.statusCode, 
-			duration)
+		logger.Info("http request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rw.statusCode,
+			"duration", duration.String(),
+			"remote", r.RemoteAddr,
+		)
 	})
 }
 
