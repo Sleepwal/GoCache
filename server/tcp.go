@@ -23,6 +23,10 @@ type TCPServer struct {
 	hashCache          *cache.HashCache
 	setCache           *cache.SetCache
 	sortedSetCache     *cache.SortedSetCache
+	bitmapCache        *cache.BitmapCache
+	hllCache           *cache.HyperLogLogCache
+	geoCache           *cache.GeoCache
+	scriptEngine       *cache.ScriptEngine
 	transactionManager *cache.TransactionManager
 	appConfig          *cache.Config
 	metrics            *cache.MetricsCollector
@@ -62,6 +66,10 @@ func NewTCPServer(cfg TCPServerConfig) *TCPServer {
 		hashCache:          cache.NewHashCacheWithMemory(mc),
 		setCache:           cache.NewSetCacheWithMemory(mc),
 		sortedSetCache:     cache.NewSortedSetCacheWithMemory(mc),
+		bitmapCache:        cache.NewBitmapCache(mc),
+		hllCache:           cache.NewHyperLogLogCache(mc),
+		geoCache:           cache.NewGeoCache(mc),
+		scriptEngine:       cache.NewScriptEngine(mc),
 		transactionManager: cache.NewTransactionManager(mc),
 		tcpConfig:          cfg,
 		clients:            make(map[net.Conn]*client),
@@ -83,6 +91,10 @@ func NewTCPServerWithCache(cfg TCPServerConfig, c *cache.MemoryCache) *TCPServer
 		hashCache:          cache.NewHashCacheWithMemory(c),
 		setCache:           cache.NewSetCacheWithMemory(c),
 		sortedSetCache:     cache.NewSortedSetCacheWithMemory(c),
+		bitmapCache:        cache.NewBitmapCache(c),
+		hllCache:           cache.NewHyperLogLogCache(c),
+		geoCache:           cache.NewGeoCache(c),
+		scriptEngine:       cache.NewScriptEngine(c),
 		transactionManager: cache.NewTransactionManager(c),
 		tcpConfig:          cfg,
 		clients:            make(map[net.Conn]*client),
@@ -194,6 +206,27 @@ func (ts *TCPServer) registerCommands() {
 		"unwatch": ts.cmdUnwatch,
 		// Auth
 		"auth": ts.cmdAuth,
+		// Bitmap
+		"setbit":   ts.cmdSetBit,
+		"getbit":   ts.cmdGetBit,
+		"bitcount": ts.cmdBitCount,
+		"bitop":    ts.cmdBitOp,
+		"bitpos":   ts.cmdBitPos,
+		// HyperLogLog
+		"pfadd":   ts.cmdPFAdd,
+		"pfcount": ts.cmdPFCount,
+		"pfmerge": ts.cmdPFMerge,
+		// Geo
+		"geoadd":            ts.cmdGeoAdd,
+		"geodist":           ts.cmdGeoDist,
+		"geohash":           ts.cmdGeoHash,
+		"geopos":            ts.cmdGeoPos,
+		"georadius":         ts.cmdGeoRadius,
+		"georadiusbymember": ts.cmdGeoRadiusByMember,
+		// Script
+		"eval":    ts.cmdEval,
+		"evalsha": ts.cmdEvalSHA,
+		"script":  ts.cmdScript,
 	}
 }
 

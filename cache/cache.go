@@ -391,6 +391,12 @@ func (c *MemoryCache) Type(key string) string {
 		return "hash"
 	case *sortedSetData:
 		return "zset"
+	case *bitmapData:
+		return "bitmap"
+	case *hllData:
+		return "hyperloglog"
+	case *geoData:
+		return "geo"
 	default:
 		return "string"
 	}

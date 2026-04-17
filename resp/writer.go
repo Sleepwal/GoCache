@@ -45,10 +45,6 @@ func (w *Writer) WriteError(s string) error {
 	return w.writeError(s)
 }
 
-func (w *Writer) WriteInteger(n int64) error {
-	return w.writeInteger(n)
-}
-
 func (w *Writer) WriteBulkString(s string) error {
 	return w.writeBulkString(s)
 }
@@ -89,6 +85,34 @@ func (w *Writer) WriteStringMap(m map[string]string) error {
 	return w.writeArray(vals)
 }
 
+func (w *Writer) StartArray(count int) error {
+	_, err := fmt.Fprintf(w.writer, "*%d\r\n", count)
+	return err
+}
+
+func (w *Writer) WriteCommand(cmd string, args ...string) error {
+	total := 1 + len(args)
+	if _, err := fmt.Fprintf(w.writer, "*%d\r\n", total); err != nil {
+		return err
+	}
+	if err := w.writeBulkString(cmd); err != nil {
+		return err
+	}
+	for _, arg := range args {
+		if err := w.writeBulkString(arg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Writer) Flush() error {
+	if flusher, ok := w.writer.(interface{ Flush() error }); ok {
+		return flusher.Flush()
+	}
+	return nil
+}
+
 func (w *Writer) writeSimpleString(s string) error {
 	_, err := fmt.Fprintf(w.writer, "+%s\r\n", s)
 	return err
@@ -97,6 +121,14 @@ func (w *Writer) writeSimpleString(s string) error {
 func (w *Writer) writeError(s string) error {
 	_, err := fmt.Fprintf(w.writer, "-%s\r\n", s)
 	return err
+}
+
+func (w *Writer) WriteInteger(n int64) error {
+	return w.writeInteger(n)
+}
+
+func (w *Writer) WriteInt(n int) error {
+	return w.writeInteger(int64(n))
 }
 
 func (w *Writer) writeInteger(n int64) error {
