@@ -111,7 +111,7 @@ func (c *cli) formatValue(val resp.Value) string {
 }
 
 func (c *cli) runInteractive() {
-	fmt.Printf("GoCache CLI v1.1.0\n")
+	fmt.Printf("GoCache CLI v2.0.0\n")
 	fmt.Printf("Connecting to %s:%d...\n", c.host, c.port)
 
 	if err := c.connect(); err != nil {
