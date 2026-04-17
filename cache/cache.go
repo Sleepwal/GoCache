@@ -292,6 +292,58 @@ func (c *MemoryCache) Keys() []string {
 	return keys
 }
 
+// Scan 游标式迭代键，类似 Redis SCAN
+// cursor: 起始游标(从 0 开始)，返回的 nextCursor 为 0 表示迭代完成
+// count: 建议返回键数量提示(非严格限制)
+// 返回 (nextCursor, keys)
+func (c *MemoryCache) Scan(cursor uint64, count int) (uint64, []string) {
+	if count <= 0 {
+		count = 10
+	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// 获取所有键(排序以确保游标一致性)
+	allKeys := make([]string, 0, len(c.items))
+	now := time.Now().UnixNano()
+	for key, item := range c.items {
+		if item.Expiration == 0 || now <= item.Expiration {
+			allKeys = append(allKeys, key)
+		}
+	}
+
+	// 排序
+	for i := 0; i < len(allKeys); i++ {
+		for j := i + 1; j < len(allKeys); j++ {
+			if allKeys[i] > allKeys[j] {
+				allKeys[i], allKeys[j] = allKeys[j], allKeys[i]
+			}
+		}
+	}
+
+	total := uint64(len(allKeys))
+	if cursor >= total {
+		return 0, []string{}
+	}
+
+	// 计算结束位置
+	end := cursor + uint64(count)
+	if end >= total {
+		end = total
+	}
+
+	keys := allKeys[cursor:end]
+	nextCursor := end
+
+	// 如果已到达末尾，返回 0
+	if nextCursor >= total {
+		nextCursor = 0
+	}
+
+	return nextCursor, keys
+}
+
 // Count 返回缓存项数量(包括已过期的)
 func (c *MemoryCache) Count() int {
 	c.mu.RLock()

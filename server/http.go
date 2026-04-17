@@ -95,6 +95,7 @@ func (hs *HTTPServer) setupRoutes() {
 	// Basic cache endpoints
 	mux.HandleFunc("/cache/", hs.corsMiddleware(hs.cacheHandler))
 	mux.HandleFunc("/cache/keys", hs.corsMiddleware(hs.keysHandler))
+	mux.HandleFunc("/cache/scan", hs.corsMiddleware(hs.scanHandler))
 	mux.HandleFunc("/cache/stats", hs.corsMiddleware(hs.statsHandler))
 	mux.HandleFunc("/cache/clear", hs.corsMiddleware(hs.clearHandler))
 
@@ -239,6 +240,41 @@ func (hs *HTTPServer) keysHandler(w http.ResponseWriter, r *http.Request) {
 	hs.sendJSON(w, http.StatusOK, map[string]any{
 		"keys":  keys,
 		"count": len(keys),
+	})
+}
+
+// scanHandler 处理 /cache/scan 请求
+func (hs *HTTPServer) scanHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	cursor := uint64(0)
+	if cStr := r.URL.Query().Get("cursor"); cStr != "" {
+		var err error
+		cursor, err = strconv.ParseUint(cStr, 10, 64)
+		if err != nil {
+			hs.sendError(w, http.StatusBadRequest, "invalid cursor parameter")
+			return
+		}
+	}
+
+	count := 10
+	if nStr := r.URL.Query().Get("count"); nStr != "" {
+		var err error
+		count, err = strconv.Atoi(nStr)
+		if err != nil || count <= 0 {
+			count = 10
+		}
+	}
+
+	nextCursor, keys := hs.cache.Scan(cursor, count)
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"cursor":      nextCursor,
+		"keys":        keys,
+		"has_more":    nextCursor != 0,
+		"returned":    len(keys),
 	})
 }
 

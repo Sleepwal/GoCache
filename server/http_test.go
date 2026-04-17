@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -986,5 +987,112 @@ func TestHTTPServer_SetSDiff(t *testing.T) {
 	json.NewDecoder(w.Result().Body).Decode(&result)
 	if int(result["count"].(float64)) != 1 {
 		t.Errorf("expected diff count 1, got %v", result["count"])
+	}
+}
+
+// TestHTTPServer_Scan 测试 SCAN 迭代器
+func TestHTTPServer_Scan(t *testing.T) {
+	hs := NewHTTPServer(HTTPServerConfig{Port: 0})
+
+	// 添加 5 个键
+	for i := 0; i < 5; i++ {
+		hs.cache.Set(fmt.Sprintf("key%d", i), fmt.Sprintf("value%d", i), 0)
+	}
+
+	// 第一次扫描，count=2
+	req := httptest.NewRequest(http.MethodGet, "/cache/scan?cursor=0&count=2", nil)
+	w := httptest.NewRecorder()
+	hs.scanHandler(w, req)
+
+	if w.Result().StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Result().StatusCode)
+	}
+
+	var result map[string]any
+	json.NewDecoder(w.Result().Body).Decode(&result)
+
+	// 第一次应该返回 2 个键且 has_more=true
+	if int(result["returned"].(float64)) != 2 {
+		t.Errorf("expected 2 keys, got %v", result["returned"])
+	}
+	if result["has_more"] != true {
+		t.Errorf("expected has_more true, got %v", result["has_more"])
+	}
+
+	firstCursor := uint64(result["cursor"].(float64))
+
+	// 继续扫描
+	req = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cache/scan?cursor=%d&count=2", int(firstCursor)), nil)
+	w = httptest.NewRecorder()
+	hs.scanHandler(w, req)
+
+	json.NewDecoder(w.Result().Body).Decode(&result)
+	if int(result["returned"].(float64)) != 2 {
+		t.Errorf("expected 2 keys on second scan, got %v", result["returned"])
+	}
+}
+
+// TestMemoryCache_Scan 测试 MemoryCache Scan 方法
+func TestMemoryCache_Scan(t *testing.T) {
+	c := cache.New()
+
+	// 添加 5 个键
+	for i := 0; i < 5; i++ {
+		c.Set(fmt.Sprintf("key%d", i), fmt.Sprintf("value%d", i), 0)
+	}
+
+	// 第一次扫描
+	nextCursor, keys := c.Scan(0, 2)
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d", len(keys))
+	}
+	if nextCursor == 0 {
+		t.Error("expected nextCursor != 0, got 0")
+	}
+
+	// 继续扫描
+	nextCursor, keys = c.Scan(nextCursor, 2)
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys on second scan, got %d", len(keys))
+	}
+
+	// 最后一次
+	nextCursor, keys = c.Scan(nextCursor, 2)
+	if len(keys) != 1 {
+		t.Errorf("expected 1 key on last scan, got %d", len(keys))
+	}
+	if nextCursor != 0 {
+		t.Errorf("expected nextCursor 0, got %d", nextCursor)
+	}
+
+	// 超出范围
+	nextCursor, keys = c.Scan(100, 10)
+	if len(keys) != 0 {
+		t.Errorf("expected 0 keys for cursor out of range, got %d", len(keys))
+	}
+	if nextCursor != 0 {
+		t.Errorf("expected nextCursor 0 for out of range, got %d", nextCursor)
+	}
+}
+
+// TestMemoryCache_ScanWithTTL 测试 SCAN 不返回过期键
+func TestMemoryCache_ScanWithTTL(t *testing.T) {
+	c := cache.New()
+
+	c.Set("key1", "value1", 0)
+	c.Set("key2", "value2", 50*time.Millisecond)
+
+	// 立即扫描，应该都有
+	_, keys := c.Scan(0, 10)
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys before expiry, got %d", len(keys))
+	}
+
+	// 等待过期
+	time.Sleep(100 * time.Millisecond)
+
+	_, keys = c.Scan(0, 10)
+	if len(keys) != 1 {
+		t.Errorf("expected 1 key after expiry, got %d", len(keys))
 	}
 }
