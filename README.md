@@ -377,10 +377,30 @@ inter := sc.SInter("set1", "set2")   // 返回 [c]
 diff := sc.SDiff("set1", "set2")     // 返回 [a, b]
 ```
 
+### 启动服务器
+
+```bash
+# 同时启动 HTTP API 服务器 (8080) 和 RESP 服务器 (6379)
+go run main.go
+
+# 服务器启动后显示
+# GoCache v1.1.0 - In-Memory Cache Server
+# ========================================
+#
+# HTTP API Endpoints (port 8080):
+#   GET    /cache/{key}         - Get cache value
+#   POST   /cache/{key}         - Set cache value
+#   ...
+#
+# RESP Protocol (port 6379):
+#   Compatible with redis-cli and Redis clients
+#   Connect: redis-cli -p 6379
+```
+
 ### gocache-cli 命令行工具
 
 ```bash
-# 启动交互式客户端
+# 启动交互式客户端（需要先启动服务器）
 go run cmd/gocache-cli/main.go
 
 # 连接指定服务器
