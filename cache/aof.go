@@ -2,6 +2,9 @@ package cache
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/base64"
+	"encoding/gob"
 	"fmt"
 	"os"
 	"strings"
@@ -33,6 +36,38 @@ func NewAOFLogger(path string) (*AOFLogger, error) {
 	}, nil
 }
 
+// encodedItem gob 包装器，用于类型保留
+type encodedItem struct {
+	Value any
+}
+
+// encodeValue 使用 gob 编码值，然后 base64 编码为安全字符串
+func encodeValue(value any) (string, error) {
+	item := encodedItem{Value: value}
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	if err := enc.Encode(item); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+// decodeValue 解码 base64 + gob 还原 Go 原始类型
+func decodeValue(encoded string) (any, error) {
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, err
+	}
+	buf := bytes.NewReader(data)
+	dec := gob.NewDecoder(buf)
+	
+	var item encodedItem
+	if err := dec.Decode(&item); err != nil {
+		return nil, err
+	}
+	return item.Value, nil
+}
+
 // Log 记录操作到 AOF 文件
 func (a *AOFLogger) Log(command string, args ...string) error {
 	if !a.enabled {
@@ -52,6 +87,25 @@ func (a *AOFLogger) Log(command string, args ...string) error {
 	}
 
 	return a.writer.Flush()
+}
+
+// LogSet 记录 SET 操作，值使用 gob+base64 编码保留类型
+func (a *AOFLogger) LogSet(key string, value any, expiration int64) error {
+	if !a.enabled {
+		return nil
+	}
+
+	encoded, err := encodeValue(value)
+	if err != nil {
+		return fmt.Errorf("failed to encode value: %w", err)
+	}
+
+	return a.Log("SET", key, encoded, fmt.Sprintf("%d", expiration))
+}
+
+// LogDelete 记录 DELETE 操作
+func (a *AOFLogger) LogDelete(key string) error {
+	return a.Log("DELETE", key)
 }
 
 // Close 关闭 AOF 文件
@@ -84,7 +138,11 @@ func (a *AOFLogger) Rewrite(cache *MemoryCache) error {
 	timestamp := time.Now().UnixNano()
 
 	for key, item := range cache.items {
-		line := fmt.Sprintf("%d SET %s %v %d\n", timestamp, key, item.Value, item.Expiration)
+		encoded, err := encodeValue(item.Value)
+		if err != nil {
+			return fmt.Errorf("failed to encode value for key %s: %w", key, err)
+		}
+		line := fmt.Sprintf("%d SET %s %s %d\n", timestamp, key, encoded, item.Expiration)
 		if _, err := writer.WriteString(line); err != nil {
 			return fmt.Errorf("failed to write AOF: %w", err)
 		}
@@ -135,7 +193,7 @@ func (a *AOFLogger) Replay(cache *MemoryCache) error {
 
 // parseAndApply 解析并应用 AOF 日志行
 func (a *AOFLogger) parseAndApply(cache *MemoryCache, line string) error {
-	// 格式: TIMESTAMP COMMAND ARG1 ARG2 ...
+	// 格式: TIMESTAMP COMMAND key encoded_value expiration
 	parts := strings.SplitN(line, " ", 5)
 	if len(parts) < 3 {
 		return nil // 跳过无效行
@@ -148,25 +206,27 @@ func (a *AOFLogger) parseAndApply(cache *MemoryCache, line string) error {
 		if len(parts) < 5 {
 			return nil
 		}
-		// 格式: TIMESTAMP SET key value expiration
 		key := parts[2]
-		value := parts[3]
+		encodedValue := parts[3]
+
+		// 解码值（保留原始 Go 类型）
+		value, err := decodeValue(encodedValue)
+		if err != nil {
+			return fmt.Errorf("failed to decode value for key %s: %w", key, err)
+		}
 
 		// 解析过期时间
 		var expiration int64
 		fmt.Sscanf(parts[4], "%d", &expiration)
 
-		var ttl time.Duration
+		// 如果已过期，跳过
 		if expiration > 0 {
-			ttl = time.Until(time.Unix(0, expiration))
+			ttl := time.Until(time.Unix(0, expiration))
 			if ttl < 0 {
-				ttl = 0 // 已过期，跳过
+				return nil // 已过期，跳过
 			}
-		}
-
-		if ttl > 0 {
 			cache.Set(key, value, ttl)
-		} else if expiration == 0 {
+		} else {
 			cache.Set(key, value, 0)
 		}
 
