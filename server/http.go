@@ -14,13 +14,14 @@ import (
 
 // HTTPServer HTTP 缓存服务器
 type HTTPServer struct {
-	cache      *cache.MemoryCache
-	stringCache *cache.StringCache
-	listCache  *cache.ListCache
-	hashCache  *cache.HashCache
-	setCache   *cache.SetCache
-	server     *http.Server
-	startTime  time.Time
+	cache          *cache.MemoryCache
+	stringCache    *cache.StringCache
+	listCache      *cache.ListCache
+	hashCache      *cache.HashCache
+	setCache       *cache.SetCache
+	sortedSetCache *cache.SortedSetCache
+	server         *http.Server
+	startTime      time.Time
 }
 
 // HTTPServerConfig 服务器配置
@@ -36,11 +37,12 @@ func NewHTTPServer(cfg HTTPServerConfig) *HTTPServer {
 
 	memCache := cache.New()
 	return &HTTPServer{
-		cache:       memCache,
-		stringCache: cache.NewStringCache(memCache),
-		listCache:   cache.NewListCacheWithMemory(memCache),
-		hashCache:   cache.NewHashCacheWithMemory(memCache),
-		setCache:    cache.NewSetCacheWithMemory(memCache),
+		cache:          memCache,
+		stringCache:    cache.NewStringCache(memCache),
+		listCache:      cache.NewListCacheWithMemory(memCache),
+		hashCache:      cache.NewHashCacheWithMemory(memCache),
+		setCache:       cache.NewSetCacheWithMemory(memCache),
+		sortedSetCache: cache.NewSortedSetCacheWithMemory(memCache),
 		server: &http.Server{
 			Addr: fmt.Sprintf(":%d", cfg.Port),
 		},
@@ -54,11 +56,12 @@ func NewHTTPServerWithCache(cfg HTTPServerConfig, c *cache.MemoryCache) *HTTPSer
 	}
 
 	return &HTTPServer{
-		cache:       c,
-		stringCache: cache.NewStringCache(c),
-		listCache:   cache.NewListCacheWithMemory(c),
-		hashCache:   cache.NewHashCacheWithMemory(c),
-		setCache:    cache.NewSetCacheWithMemory(c),
+		cache:          c,
+		stringCache:    cache.NewStringCache(c),
+		listCache:      cache.NewListCacheWithMemory(c),
+		hashCache:      cache.NewHashCacheWithMemory(c),
+		setCache:       cache.NewSetCacheWithMemory(c),
+		sortedSetCache: cache.NewSortedSetCacheWithMemory(c),
 		server: &http.Server{
 			Addr: fmt.Sprintf(":%d", cfg.Port),
 		},
@@ -110,6 +113,9 @@ func (hs *HTTPServer) setupRoutes() {
 
 	// Set endpoints
 	mux.HandleFunc("/cache/set/", hs.corsMiddleware(hs.setHandler))
+
+	// Sorted Set endpoints
+	mux.HandleFunc("/cache/zset/", hs.corsMiddleware(hs.sortedSetHandler))
 
 	// Health endpoint
 	mux.HandleFunc("/health", hs.corsMiddleware(hs.healthHandler))
@@ -271,10 +277,10 @@ func (hs *HTTPServer) scanHandler(w http.ResponseWriter, r *http.Request) {
 
 	nextCursor, keys := hs.cache.Scan(cursor, count)
 	hs.sendJSON(w, http.StatusOK, map[string]any{
-		"cursor":      nextCursor,
-		"keys":        keys,
-		"has_more":    nextCursor != 0,
-		"returned":    len(keys),
+		"cursor":   nextCursor,
+		"keys":     keys,
+		"has_more": nextCursor != 0,
+		"returned": len(keys),
 	})
 }
 
@@ -287,15 +293,15 @@ func (hs *HTTPServer) statsHandler(w http.ResponseWriter, r *http.Request) {
 
 	snapshot := hs.cache.Stats.GetSnapshot()
 	hs.sendJSON(w, http.StatusOK, map[string]any{
-		"hits":         snapshot.Hits,
-		"misses":       snapshot.Misses,
-		"sets":         snapshot.Sets,
-		"deletes":      snapshot.Deletes,
-		"expired":      snapshot.ExpiredCount,
-		"ttl_hits":     snapshot.TTLHits,
-		"ttl_misses":   snapshot.TTLMisses,
-		"hit_rate":     fmt.Sprintf("%.2f%%", snapshot.HitRate),
-		"total_ops":    snapshot.Hits + snapshot.Misses + snapshot.Sets + snapshot.Deletes,
+		"hits":       snapshot.Hits,
+		"misses":     snapshot.Misses,
+		"sets":       snapshot.Sets,
+		"deletes":    snapshot.Deletes,
+		"expired":    snapshot.ExpiredCount,
+		"ttl_hits":   snapshot.TTLHits,
+		"ttl_misses": snapshot.TTLMisses,
+		"hit_rate":   fmt.Sprintf("%.2f%%", snapshot.HitRate),
+		"total_ops":  snapshot.Hits + snapshot.Misses + snapshot.Sets + snapshot.Deletes,
 	})
 }
 
@@ -321,12 +327,12 @@ func (hs *HTTPServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 
 	uptime := time.Since(hs.startTime)
 	hs.sendJSON(w, http.StatusOK, map[string]any{
-		"status":       "ok",
-		"uptime":       uptime.String(),
-		"cache_count":  hs.cache.Count(),
-		"list_count":   hs.listCache.Count(),
-		"hash_count":   hs.hashCache.Count(),
-		"set_count":    hs.setCache.Count(),
+		"status":      "ok",
+		"uptime":      uptime.String(),
+		"cache_count": hs.cache.Count(),
+		"list_count":  hs.listCache.Count(),
+		"hash_count":  hs.hashCache.Count(),
+		"set_count":   hs.setCache.Count(),
 	})
 }
 
@@ -934,7 +940,7 @@ func (hs *HTTPServer) handleHashHDel(w http.ResponseWriter, r *http.Request, key
 
 	deleted := hs.hashCache.HDel(key, req.Fields...)
 	hs.sendJSON(w, http.StatusOK, map[string]any{
-		"key":           key,
+		"key":            key,
 		"fields_deleted": deleted,
 	})
 }
@@ -1094,7 +1100,7 @@ func (hs *HTTPServer) handleSetSAdd(w http.ResponseWriter, r *http.Request, key 
 	}
 
 	var req struct {
-		Members []any `json:"members"`
+		Members []any  `json:"members"`
 		TTL     string `json:"ttl"`
 	}
 
@@ -1110,8 +1116,8 @@ func (hs *HTTPServer) handleSetSAdd(w http.ResponseWriter, r *http.Request, key 
 
 	added := hs.setCache.SAdd(key, ttl, req.Members...)
 	hs.sendJSON(w, http.StatusOK, map[string]any{
-		"key":     key,
-		"added":   added,
+		"key":   key,
+		"added": added,
 	})
 }
 
@@ -1225,9 +1231,9 @@ func (hs *HTTPServer) handleSetSUnion(w http.ResponseWriter, r *http.Request) {
 
 	result := hs.setCache.SUnion(keys...)
 	hs.sendJSON(w, http.StatusOK, map[string]any{
-		"keys":   keys,
-		"union":  result,
-		"count":  len(result),
+		"keys":  keys,
+		"union": result,
+		"count": len(result),
 	})
 }
 
@@ -1245,9 +1251,9 @@ func (hs *HTTPServer) handleSetSInter(w http.ResponseWriter, r *http.Request) {
 
 	result := hs.setCache.SInter(keys...)
 	hs.sendJSON(w, http.StatusOK, map[string]any{
-		"keys":      keys,
+		"keys":         keys,
 		"intersection": result,
-		"count":     len(result),
+		"count":        len(result),
 	})
 }
 
@@ -1265,8 +1271,8 @@ func (hs *HTTPServer) handleSetSDiff(w http.ResponseWriter, r *http.Request) {
 
 	result := hs.setCache.SDiff(keys[0], keys[1])
 	hs.sendJSON(w, http.StatusOK, map[string]any{
-		"keys": keys,
-		"diff": result,
+		"keys":  keys,
+		"diff":  result,
 		"count": len(result),
 	})
 }
@@ -1307,11 +1313,11 @@ func (hs *HTTPServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func (hs *HTTPServer) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		
+
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-		
+
 		next.ServeHTTP(rw, r)
-		
+
 		duration := time.Since(start)
 		logger.Info("http request",
 			"method", r.Method,
@@ -1354,4 +1360,489 @@ func parseInt(s string, defaultValue int) int {
 		return defaultValue
 	}
 	return val
+}
+
+// ===================== Sorted Set Handlers =====================
+
+func (hs *HTTPServer) sortedSetHandler(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/cache/zset/")
+	if path == "" {
+		hs.sendError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+
+	parts := strings.SplitN(path, "/", 2)
+	key := parts[0]
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+
+	switch action {
+	case "zadd":
+		hs.handleSortedSetZAdd(w, r, key)
+	case "zrem":
+		hs.handleSortedSetZRem(w, r, key)
+	case "zscore":
+		hs.handleSortedSetZScore(w, r, key)
+	case "zcard":
+		hs.handleSortedSetZCard(w, r, key)
+	case "zrank":
+		hs.handleSortedSetZRank(w, r, key)
+	case "zrevrank":
+		hs.handleSortedSetZRevRank(w, r, key)
+	case "zrange":
+		hs.handleSortedSetZRange(w, r, key)
+	case "zrevrange":
+		hs.handleSortedSetZRevRange(w, r, key)
+	case "zrangebyscore":
+		hs.handleSortedSetZRangeByScore(w, r, key)
+	case "zrevrangebyscore":
+		hs.handleSortedSetZRevRangeByScore(w, r, key)
+	case "zcount":
+		hs.handleSortedSetZCount(w, r, key)
+	case "zincrby":
+		hs.handleSortedSetZIncrBy(w, r, key)
+	case "zpopmin":
+		hs.handleSortedSetZPopMin(w, r, key)
+	case "zpopmax":
+		hs.handleSortedSetZPopMax(w, r, key)
+	case "zremrangebyrank":
+		hs.handleSortedSetZRemRangeByRank(w, r, key)
+	case "zremrangebyscore":
+		hs.handleSortedSetZRemRangeByScore(w, r, key)
+	default:
+		hs.sendError(w, http.StatusBadRequest, "unknown action")
+	}
+}
+
+func (hs *HTTPServer) handleSortedSetZAdd(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodPost {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		Members map[string]float64 `json:"members"`
+		TTL     string             `json:"ttl"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Members) == 0 {
+		hs.sendError(w, http.StatusBadRequest, "members are required")
+		return
+	}
+
+	var ttl time.Duration
+	if req.TTL != "" {
+		ttl, _ = time.ParseDuration(req.TTL)
+	}
+
+	added := hs.sortedSetCache.ZAdd(key, ttl, req.Members)
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":   key,
+		"added": added,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZRem(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodPost {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		Members []string `json:"members"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	removed := hs.sortedSetCache.ZRem(key, req.Members...)
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":     key,
+		"removed": removed,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZScore(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	member := r.URL.Query().Get("member")
+	if member == "" {
+		hs.sendError(w, http.StatusBadRequest, "member parameter is required")
+		return
+	}
+
+	score, found := hs.sortedSetCache.ZScore(key, member)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key or member not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":    key,
+		"member": member,
+		"score":  score,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZCard(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	card, found := hs.sortedSetCache.ZCard(key)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":  key,
+		"card": card,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZRank(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	member := r.URL.Query().Get("member")
+	if member == "" {
+		hs.sendError(w, http.StatusBadRequest, "member parameter is required")
+		return
+	}
+
+	rank, found := hs.sortedSetCache.ZRank(key, member)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key or member not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":    key,
+		"member": member,
+		"rank":   rank,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZRevRank(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	member := r.URL.Query().Get("member")
+	if member == "" {
+		hs.sendError(w, http.StatusBadRequest, "member parameter is required")
+		return
+	}
+
+	rank, found := hs.sortedSetCache.ZRevRank(key, member)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key or member not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":     key,
+		"member":  member,
+		"revrank": rank,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZRange(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	start := parseInt(r.URL.Query().Get("start"), 0)
+	end := parseInt(r.URL.Query().Get("end"), -1)
+
+	result, found := hs.sortedSetCache.ZRange(key, start, end)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":     key,
+		"members": result,
+		"count":   len(result),
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZRevRange(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	start := parseInt(r.URL.Query().Get("start"), 0)
+	end := parseInt(r.URL.Query().Get("end"), -1)
+
+	result, found := hs.sortedSetCache.ZRevRange(key, start, end)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":     key,
+		"members": result,
+		"count":   len(result),
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZRangeByScore(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	minStr := r.URL.Query().Get("min")
+	maxStr := r.URL.Query().Get("max")
+	if minStr == "" || maxStr == "" {
+		hs.sendError(w, http.StatusBadRequest, "min and max parameters are required")
+		return
+	}
+
+	min, err := strconv.ParseFloat(minStr, 64)
+	if err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid min value")
+		return
+	}
+
+	max, err := strconv.ParseFloat(maxStr, 64)
+	if err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid max value")
+		return
+	}
+
+	offset := parseInt(r.URL.Query().Get("offset"), 0)
+	count := parseInt(r.URL.Query().Get("count"), -1)
+
+	result, found := hs.sortedSetCache.ZRangeByScore(key, min, max, offset, count)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":     key,
+		"members": result,
+		"count":   len(result),
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZRevRangeByScore(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	maxStr := r.URL.Query().Get("max")
+	minStr := r.URL.Query().Get("min")
+	if maxStr == "" || minStr == "" {
+		hs.sendError(w, http.StatusBadRequest, "min and max parameters are required")
+		return
+	}
+
+	max, err := strconv.ParseFloat(maxStr, 64)
+	if err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid max value")
+		return
+	}
+
+	min, err := strconv.ParseFloat(minStr, 64)
+	if err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid min value")
+		return
+	}
+
+	offset := parseInt(r.URL.Query().Get("offset"), 0)
+	count := parseInt(r.URL.Query().Get("count"), -1)
+
+	result, found := hs.sortedSetCache.ZRevRangeByScore(key, max, min, offset, count)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":     key,
+		"members": result,
+		"count":   len(result),
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZCount(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	minStr := r.URL.Query().Get("min")
+	maxStr := r.URL.Query().Get("max")
+	if minStr == "" || maxStr == "" {
+		hs.sendError(w, http.StatusBadRequest, "min and max parameters are required")
+		return
+	}
+
+	min, err := strconv.ParseFloat(minStr, 64)
+	if err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid min value")
+		return
+	}
+
+	max, err := strconv.ParseFloat(maxStr, 64)
+	if err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid max value")
+		return
+	}
+
+	count, found := hs.sortedSetCache.ZCount(key, min, max)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":   key,
+		"count": count,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZIncrBy(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodPost {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		Member    string  `json:"member"`
+		Increment float64 `json:"increment"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	score, _ := hs.sortedSetCache.ZIncrBy(key, req.Member, req.Increment)
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":    key,
+		"member": req.Member,
+		"score":  score,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZPopMin(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodPost {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	sm, found := hs.sortedSetCache.ZPopMin(key)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found or empty")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":    key,
+		"member": sm.Member,
+		"score":  sm.Score,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZPopMax(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodPost {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	sm, found := hs.sortedSetCache.ZPopMax(key)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found or empty")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":    key,
+		"member": sm.Member,
+		"score":  sm.Score,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZRemRangeByRank(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodPost {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	start := parseInt(r.URL.Query().Get("start"), 0)
+	end := parseInt(r.URL.Query().Get("end"), -1)
+
+	removed, found := hs.sortedSetCache.ZRemRangeByRank(key, start, end)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":     key,
+		"removed": removed,
+	})
+}
+
+func (hs *HTTPServer) handleSortedSetZRemRangeByScore(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodPost {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	minStr := r.URL.Query().Get("min")
+	maxStr := r.URL.Query().Get("max")
+	if minStr == "" || maxStr == "" {
+		hs.sendError(w, http.StatusBadRequest, "min and max parameters are required")
+		return
+	}
+
+	min, err := strconv.ParseFloat(minStr, 64)
+	if err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid min value")
+		return
+	}
+
+	max, err := strconv.ParseFloat(maxStr, 64)
+	if err != nil {
+		hs.sendError(w, http.StatusBadRequest, "invalid max value")
+		return
+	}
+
+	removed, found := hs.sortedSetCache.ZRemRangeByScore(key, min, max)
+	if !found {
+		hs.sendError(w, http.StatusNotFound, "key not found")
+		return
+	}
+
+	hs.sendJSON(w, http.StatusOK, map[string]any{
+		"key":     key,
+		"removed": removed,
+	})
 }
