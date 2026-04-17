@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -67,7 +68,7 @@ func (ps *PubSub) Subscribe(keys ...string) *Subscription {
 
 	ps.counter++
 	sub := &Subscription{
-		id:      string(rune(ps.counter)),
+		id:      fmt.Sprintf("sub-%d", ps.counter),
 		channel: make(chan CacheEvent, 100), // 缓冲 100 个事件
 	}
 
