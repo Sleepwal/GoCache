@@ -26,7 +26,6 @@ vendor/
 *.swo
 *~
 .DS_Store
-.trae/
 
 # OS generated files
 Thumbs.db
