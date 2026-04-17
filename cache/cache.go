@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"math"
 	"sync"
 	"time"
 )
@@ -34,6 +35,7 @@ type EvictionCallback func(key string, value any, reason EvictionReason)
 type Item struct {
 	Value      any
 	Expiration int64 // 过期时间戳(纳秒),0表示永不过期
+	LastAccess int64 // 最后访问时间戳(纳秒)
 }
 
 // IsExpired 检查缓存项是否过期
@@ -127,19 +129,31 @@ func (c *MemoryCache) Set(key string, value any, ttl time.Duration) {
 	c.items[key] = &Item{
 		Value:      value,
 		Expiration: expiration,
+		LastAccess: time.Now().UnixNano(),
 	}
 	c.currentBytes += newItemSize
 }
 
-// evictOne 删除一项（用于内存限制）
+// evictOne 删除最久未访问的项（LRU 淘汰策略）
 func (c *MemoryCache) evictOne() {
+	var oldestKey string
+	var oldestItem *Item
+	oldestTime := int64(math.MaxInt64)
+
 	for key, item := range c.items {
-		delete(c.items, key)
-		c.currentBytes -= estimateItemSize(key, item.Value, item.Expiration)
-		if c.onEvict != nil {
-			c.onEvict(key, item.Value, CapacityEvicted)
+		if item.LastAccess < oldestTime {
+			oldestTime = item.LastAccess
+			oldestKey = key
+			oldestItem = item
 		}
-		return
+	}
+
+	if oldestKey != "" {
+		delete(c.items, oldestKey)
+		c.currentBytes -= estimateItemSize(oldestKey, oldestItem.Value, oldestItem.Expiration)
+		if c.onEvict != nil {
+			c.onEvict(oldestKey, oldestItem.Value, CapacityEvicted)
+		}
 	}
 }
 
@@ -186,8 +200,8 @@ func (c *MemoryCache) Clear() {
 
 // Get 获取缓存项
 func (c *MemoryCache) Get(key string) (any, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	item, found := c.items[key]
 	if !found {
@@ -203,6 +217,7 @@ func (c *MemoryCache) Get(key string) (any, bool) {
 		return nil, false
 	}
 
+	item.LastAccess = time.Now().UnixNano()
 	c.Stats.Hits.Add(1)
 	c.Stats.TTLHits.Add(1)
 	return item.Value, true
@@ -350,4 +365,38 @@ func (c *MemoryCache) Count() int {
 	defer c.mu.RUnlock()
 
 	return len(c.items)
+}
+
+func (c *MemoryCache) Type(key string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	item, found := c.items[key]
+	if !found || item.IsExpired() {
+		return "none"
+	}
+
+	switch item.Value.(type) {
+	case *setData:
+		return "set"
+	case *listData:
+		return "list"
+	case *hashData:
+		return "hash"
+	case *sortedSetData:
+		return "zset"
+	default:
+		return "string"
+	}
+}
+
+func (c *MemoryCache) Items() map[string]*Item {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make(map[string]*Item, len(c.items))
+	for k, v := range c.items {
+		result[k] = v
+	}
+	return result
 }
