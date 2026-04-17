@@ -19,7 +19,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("GoCache v2.0.0")
+		fmt.Println("GoCache v2.1.0")
 		return
 	}
 

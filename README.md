@@ -1,6 +1,6 @@
 # GoCache
 
-**当前版本: v2.0.0**
+**当前版本: v2.1.0**
 
 一个简单的 Go 语言内存数据库(内存缓存)实现。
 
@@ -384,7 +384,7 @@ diff := sc.SDiff("set1", "set2")     // 返回 [a, b]
 go run main.go
 
 # 服务器启动后显示
-# GoCache v2.0.0 - In-Memory Cache Server
+# GoCache v2.1.0 - In-Memory Cache Server
 # ========================================
 #
 # HTTP API Endpoints (port 8080):
