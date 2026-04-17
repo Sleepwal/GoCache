@@ -377,6 +377,83 @@ inter := sc.SInter("set1", "set2")   // 返回 [c]
 diff := sc.SDiff("set1", "set2")     // 返回 [a, b]
 ```
 
+### gocache-cli 命令行工具
+
+```bash
+# 启动交互式客户端
+go run cmd/gocache-cli/main.go
+
+# 连接指定服务器
+go run cmd/gocache-cli/main.go -h 127.0.0.1 -p 6379
+
+# 单命令模式
+go run cmd/gocache-cli/main.go PING
+```
+
+**使用示例:**
+
+```bash
+# 基础操作
+127.0.0.1:6379> SET name "GoCache"
+"OK"
+127.0.0.1:6379> GET name
+"GoCache"
+127.0.0.1:6379> EXISTS name
+(integer) 1
+
+# String 操作
+127.0.0.1:6379> SET counter 100
+"OK"
+127.0.0.1:6379> INCR counter
+(integer) 101
+127.0.0.1:6379> APPEND name "-v1.1"
+(integer) 12
+
+# List 操作
+127.0.0.1:6379> LPUSH mylist "a" "b" "c"
+(integer) 3
+127.0.0.1:6379> LRANGE mylist 0 -1
+1) "c"
+2) "b"
+3) "a"
+
+# Hash 操作
+127.0.0.1:6379> HSET user:1 name "Alice" age 30
+(integer) 2
+127.0.0.1:6379> HGETALL user:1
+1) "name"
+2) "Alice"
+3) "age"
+4) "30"
+
+# Set 操作
+127.0.0.1:6379> SADD tags "go" "redis" "cache"
+(integer) 3
+127.0.0.1:6379> SISMEMBER tags "go"
+(integer) 1
+
+# Sorted Set 操作
+127.0.0.1:6379> ZADD leaderboard 100 "Alice" 200 "Bob" 150 "Charlie"
+(integer) 3
+127.0.0.1:6379> ZRANGE leaderboard 0 -1 WITHSCORES
+1) "Alice"
+2) 100
+3) "Charlie"
+4) 150
+5) "Bob"
+6) 200
+
+# 查看帮助
+127.0.0.1:6379> HELP
+GoCache CLI - Available commands:
+
+  Connection:
+    PING, ECHO, SELECT, QUIT, INFO, DBSIZE, FLUSHDB, FLUSHALL, TIME
+  Key:
+    SET, GET, DEL, EXISTS, KEYS, EXPIRE, TTL, PTTL, PERSIST, TYPE, RENAME
+  ...
+```
+
 ### HTTP REST API 服务器
 
 ```go
