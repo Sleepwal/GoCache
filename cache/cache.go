@@ -4,6 +4,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"GoCache/logger"
 )
 
 // EvictionReason 缓存项被移除的原因
@@ -121,8 +123,10 @@ func (c *MemoryCache) Set(key string, value any, ttl time.Duration) {
 	// 检查内存限制
 	if c.MaxMemoryBytes > 0 {
 		for c.currentBytes+newItemSize > c.MaxMemoryBytes && len(c.items) > 0 {
-			// 内存不足，删除最久未使用的项
 			c.evictOne()
+		}
+		if c.currentBytes+newItemSize > c.MaxMemoryBytes {
+			logger.Warn("cache memory limit reached, cannot store item", "key", key, "current_bytes", c.currentBytes, "max_bytes", c.MaxMemoryBytes, "item_size", newItemSize)
 		}
 	}
 
@@ -150,7 +154,9 @@ func (c *MemoryCache) evictOne() {
 
 	if oldestKey != "" {
 		delete(c.items, oldestKey)
-		c.currentBytes -= estimateItemSize(oldestKey, oldestItem.Value, oldestItem.Expiration)
+		oldestSize := estimateItemSize(oldestKey, oldestItem.Value, oldestItem.Expiration)
+		c.currentBytes -= oldestSize
+		logger.Warn("cache item evicted (LRU)", "key", oldestKey, "memory_freed", oldestSize, "current_bytes", c.currentBytes, "max_bytes", c.MaxMemoryBytes)
 		if c.onEvict != nil {
 			c.onEvict(oldestKey, oldestItem.Value, CapacityEvicted)
 		}

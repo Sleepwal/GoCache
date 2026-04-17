@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"GoCache/logger"
 )
 
 // CacheSnapshot 缓存快照数据结构
@@ -25,6 +27,8 @@ func (c *MemoryCache) SaveToFile(path string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	logger.Info("saving cache snapshot", "path", path, "items", len(c.items))
+
 	snapshot := CacheSnapshot{
 		Items: make(map[string]SnapshotItem, len(c.items)),
 	}
@@ -38,21 +42,32 @@ func (c *MemoryCache) SaveToFile(path string) error {
 
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
+		logger.Error("failed to marshal snapshot", "error", err)
 		return fmt.Errorf("failed to marshal snapshot: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		logger.Error("failed to write snapshot file", "path", path, "error", err)
+		return err
+	}
+
+	logger.Info("cache snapshot saved", "path", path, "items", len(snapshot.Items))
+	return nil
 }
 
 // LoadFromFile 从文件恢复 MemoryCache 状态
 func (c *MemoryCache) LoadFromFile(path string) error {
+	logger.Info("loading cache snapshot", "path", path)
+
 	data, err := os.ReadFile(path)
 	if err != nil {
+		logger.Error("failed to read snapshot file", "path", path, "error", err)
 		return fmt.Errorf("failed to read snapshot file: %w", err)
 	}
 
 	var snapshot CacheSnapshot
 	if err := json.Unmarshal(data, &snapshot); err != nil {
+		logger.Error("failed to unmarshal snapshot", "path", path, "error", err)
 		return fmt.Errorf("failed to unmarshal snapshot: %w", err)
 	}
 
@@ -67,6 +82,7 @@ func (c *MemoryCache) LoadFromFile(path string) error {
 		}
 	}
 
+	logger.Info("cache snapshot loaded", "path", path, "items", len(c.items))
 	return nil
 }
 

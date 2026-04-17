@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"GoCache/logger"
 )
 
 // PubSubEvent 发布/订阅事件类型
@@ -69,16 +71,17 @@ func (ps *PubSub) Subscribe(keys ...string) *Subscription {
 	ps.counter++
 	sub := &Subscription{
 		id:      fmt.Sprintf("sub-%d", ps.counter),
-		channel: make(chan CacheEvent, 100), // 缓冲 100 个事件
+		channel: make(chan CacheEvent, 100),
 	}
 
 	if len(keys) == 0 {
-		// 全局订阅
 		ps.globalSubs = append(ps.globalSubs, sub)
+		logger.Debug("pubsub global subscription created", "sub_id", sub.id)
 	} else {
 		for _, key := range keys {
 			ps.subscribers[key] = append(ps.subscribers[key], sub)
 		}
+		logger.Debug("pubsub subscription created", "sub_id", sub.id, "keys", keys)
 	}
 
 	return sub
@@ -95,8 +98,8 @@ func (ps *PubSub) Unsubscribe(sub *Subscription) {
 
 	sub.closed = true
 	close(sub.channel)
+	logger.Debug("pubsub unsubscribed", "sub_id", sub.id)
 
-	// 从全局订阅中移除
 	for i, s := range ps.globalSubs {
 		if s == sub {
 			ps.globalSubs = append(ps.globalSubs[:i], ps.globalSubs[i+1:]...)
@@ -122,24 +125,22 @@ func (ps *PubSub) Publish(event CacheEvent) {
 
 	event.Timestamp = time.Now()
 
-	// 发送给全局订阅者
 	for _, sub := range ps.globalSubs {
 		if !sub.closed {
 			select {
 			case sub.channel <- event:
 			default:
-				// 通道已满，跳过
+				logger.Warn("pubsub channel full, event dropped", "sub_id", sub.id, "event_type", event.Type)
 			}
 		}
 	}
 
-	// 发送给特定键的订阅者
 	for _, sub := range ps.subscribers[event.Key] {
 		if !sub.closed {
 			select {
 			case sub.channel <- event:
 			default:
-				// 通道已满，跳过
+				logger.Warn("pubsub channel full, event dropped", "sub_id", sub.id, "key", event.Key, "event_type", event.Type)
 			}
 		}
 	}
